@@ -1,0 +1,32 @@
+{
+  "extends": [
+    "development"
+  ],
+  "hints": {
+    "axe/name-role-value": [
+      "default",
+      {
+        "button-name": "off"
+      }
+    ],
+    "compat-api/css": [
+      "default",
+      {
+        "ignore": [
+          "backdrop-filter"
+        ]
+      }
+    ],
+    "css-prefix-order": "off",
+    "no-inline-styles": "off",
+    "meta-viewport": "off",
+    "typescript-config/consistent-casing": "off",
+    "typescript-config/is-valid": "off",
+    "typescript-config/strict": "off"
+  },
+  "browserslist": [
+    "defaults",
+    "not ie 11",
+    "not ios_saf <= 11.2"
+  ]
+}

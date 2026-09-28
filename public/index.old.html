@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="km">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Khmer AI</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Kantumruy+Pro:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="dark-mode">
+
+<div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+        <h2>🤖 Khmer AI</h2>
+        <button class="new-chat-btn" onclick="newChat()">
+            <i class="fas fa-plus"></i> Chat ថ្មី
+        </button>
+    </div>
+    <div class="chat-history" id="chatHistory"></div>
+    <div class="sidebar-footer">
+        <button class="theme-btn" onclick="toggleTheme()">
+            <i class="fas fa-moon" id="themeIcon"></i>
+            <span id="themeText">Dark Mode</span>
+        </button>
+    </div>
+</div>
+
+<div class="main-content">
+    <div class="topbar">
+        <button class="menu-btn" onclick="toggleSidebar()">
+            <i class="fas fa-bars"></i>
+        </button>
+        <h1>🇰🇭 Khmer AI</h1>
+        <button class="clear-btn" onclick="clearChat()">
+            <i class="fas fa-trash"></i>
+        </button>
+    </div>
+
+    <div class="chat-box" id="chatBox">
+        <div class="welcome-screen" id="welcomeScreen">
+            <div class="welcome-icon">🤖</div>
+            <h2>សួស្តី! ខ្ញុំជា Khmer AI</h2>
+            <p>ខ្ញុំអាចជួយបានគ្រប់យ៉ាង!</p>
+            <div class="suggestion-cards">
+                <div class="card" onclick="sendSuggestion('ពន្យល់ AI ឲខ្ញុំយល់')">💡 ពន្យល់ AI</div>
+                <div class="card" onclick="sendSuggestion('សរសេរ Code Python')">💻 សរសេរ Code</div>
+                <div class="card" onclick="sendSuggestion('បកប្រែ English ទៅ ខ្មែរ')">🌍 បកប្រែភាសា</div>
+                <div class="card" onclick="sendSuggestion('ជួយខ្ញុំសរសេរ Email')">✉️ សរសេរ Email</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Image Preview Area -->
+    <div class="image-preview-area" id="imagePreviewArea"></div>
+        <div class="image-preview-wrapper">
+            <img id="imagePreview" src="" alt="preview">
+            <button class="remove-image-btn" onclick="removeImage()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <p id="imagePreviewLabel">រូបភាពរួចរាល់</p>
+    </div>
+
+    <div class="input-area">
+        <div class="input-toolbar">
+            <!-- Image Upload Button -->
+            <button class="toolbar-btn" onclick="document.getElementById('imageInput').click()" title="ផ្ញើរូបភាព">
+                <i class="fas fa-image"></i>
+            </button>
+            <input type="file" id="imageInput" accept="image/*" class="hidden-input" onchange="handleImageSelect(event)" aria-label="Upload image">
+
+            <!-- Voice Record Button -->
+            <button class="toolbar-btn voice-btn" id="voiceBtn" onclick="toggleVoice()" title="ផ្ញើសំឡេង">
+                <i class="fas fa-microphone" id="voiceIcon"></i>
+            </button>
+        </div>
+
+        <div class="input-wrapper">
+            <textarea 
+                id="userInput" 
+                placeholder="សរសេរសំណួររបស់បង..." 
+                rows="1"
+                onkeydown="handleKey(event)"
+                oninput="autoResize(this)"
+            ></textarea>
+            <button class="send-btn" onclick="sendMessage()" id="sendBtn">
+                <i class="fas fa-paper-plane"></i>
+            </button>
+        </div>
+        <p class="disclaimer">Khmer AI អាចមានការខុសឆ្គង សូមពិនិត្យព័ត៌មានសំខាន់ៗ</p>
+    </div>
+</div> 
+
+<!-- Voice Recording Modal -->
+<div class="voice-modal" id="voiceModal">
+    <div class="voice-modal-content">
+        <div class="voice-animation" id="voiceAnimation">
+            <div class="voice-circle"></div>
+            <div class="voice-circle"></div>
+            <div class="voice-circle"></div>
+        </div>
+        <p id="voiceStatus">🎤 កំពុងថតសំឡេង...</p>
+        <div class="voice-modal-buttons">
+            <button class="voice-cancel-btn" onclick="cancelVoice()">
+                <i class="fas fa-times"></i> បោះបង់
+            </button>
+            <button class="voice-send-btn" onclick="stopAndSendVoice()">
+                <i class="fas fa-paper-plane"></i> ផ្ញើ
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+// =========================
+// State
+// =========================
+let selectedImageBase64 = null;
+let selectedImageType = "image/jpeg";
+let mediaRecorder = null;
+let audioChunks = [];
+let isRecording = false;
+let chatSessions = JSON.parse(localStorage.getItem("chatSessions") || "[]");
+let currentSessionId = null;
+const API_BASE = "";  // ✅ same server, change if needed e.g. "https://your-server.com"
+
+// =========================
+// Auto-resize textarea
+// =========================
+function autoResize(el) {
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 200) + "px";
+}
+
+// =========================
+// Handle Enter key
+// =========================
+function handleKey(e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+    }
+}
+
+// =========================
+// Toggle sidebar
+// =========================
+function toggleSidebar() {
+    document.getElementById("sidebar").classList.toggle("open");
+}
+
+// =========================
+// Toggle dark/light theme
+// =========================
+function toggleTheme() {
+    document.body.classList.toggle("dark-mode");
+    const isDark = document.body.classList.contains("dark-mode");
+    document.getElementById("themeIcon").className = isDark ? "fas fa-moon" : "fas fa-sun";
+    document.getElementById("themeText").textContent = isDark ? "Dark Mode" : "Light Mode";
+    localStorage.setItem("theme", isDark ? "dark" : "light");
+}
+
+// =========================
+// Load theme on start
+// =========================
+(function initTheme() {
+    const saved = localStorage.getItem("theme");
+    if (saved === "light") {
+        document.body.classList.remove("dark-mode");
+        document.getElementById("themeIcon").className = "fas fa-sun";
+        document.getElementById("themeText").textContent = "Light Mode";
+    }
+})();
+
+// =========================
+// Send suggestion card
+// =========================
+function sendSuggestion(text) {
+    document.getElementById("userInput").value = text;
+    sendMessage();
+}
+
+// =========================
+// Add message to chat UI
+// =========================
+function addMessage(role, content, isImage = false) {
+    const welcomeScreen = document.getElementById("welcomeScreen");
+    if (welcomeScreen) welcomeScreen.remove();
+
+    const chatBox = document.getElementById("chatBox");
+    const div = document.createElement("div");
+    div.className = `message ${role}`;
+
+    if (isImage) {
+        div.innerHTML = `
+            <div class="message-content">
+                <img src="${content}" class="chat-image" alt="sent image">
+            </div>`;
+    } else {
+        // Format code blocks
+        const formatted = formatMessage(content);
+        div.innerHTML = `<div class="message-content">${formatted}</div>`;
+    }
+
+    chatBox.appendChild(div);
+    chatBox.scrollTop = chatBox.scrollHeight;
+    return div;
+}
+
+// =========================
+// Format message (code blocks, line breaks)
+// =========================
+function formatMessage(text) {
+    // Code blocks ```
+    text = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+        return `<div class="code-block"><div class="code-header"><span>${lang || "code"}</span><button onclick="copyCode(this)">📋 Copy</button></div><pre><code>${escapeHtml(code.trim())}</code></pre></div>`;
+    });
+    // Inline code
+    text = text.replace(/`([^`]+)`/g, "<code class='inline-code'>$1</code>");
+    // Bold **text**
+    text = text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+    // Line breaks
+    text = text.replace(/\n/g, "<br>");
+    return text;
+}
+
+function escapeHtml(text) {
+    return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function copyCode(btn) {
+    const code = btn.closest(".code-block").querySelector("code").innerText;
+    navigator.clipboard.writeText(code);
+    btn.textContent = "✅ Copied!";
+    setTimeout(() => btn.textContent = "📋 Copy", 2000);
+}
+
+// =========================
+// Show typing indicator
+// =========================
+function showTyping() {
+    const chatBox = document.getElementById("chatBox");
+    const div = document.createElement("div");
+    div.className = "message assistant typing-indicator-msg";
+    div.id = "typingIndicator";
+    div.innerHTML = `<div class="message-content"><span class="typing"><span></span><span></span><span></span></span></div>`;
+    chatBox.appendChild(div);
+    chatBox.scrollTop = chatBox.scrollHeight;
+}
+
+function hideTyping() {
+    const el = document.getElementById("typingIndicator");
+    if (el) el.remove();
+}
+
+// =========================
+// IMAGE: Handle image file select
+// =========================
+function handleImageSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Validate size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+        alert("រូបភាពធំពេក! សូមជ្រើសរូបភាពតូចជាង 5MB");
+        return;
+    }
+
+    selectedImageType = file.type || "image/jpeg";
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const dataUrl = e.target.result;
+        // Store base64 without prefix
+        selectedImageBase64 = dataUrl.split(",")[1];
+
+        // Show preview
+        document.getElementById("imagePreview").src = dataUrl;
+        document.getElementById("imagePreviewArea").style.display = "flex";
+        document.getElementById("imagePreviewLabel").textContent = file.name;
+    };
+    reader.readAsDataURL(file);
+
+    // Reset input so same file can be reselected
+    event.target.value = "";
+}
+
+function removeImage() {
+    selectedImageBase64 = null;
+    selectedImageType = "image/jpeg";
+    document.getElementById("imagePreviewArea").style.display = "none";
+    document.getElementById("imagePreview").src = "";
+}
+
+// =========================
+// VOICE: Toggle recording
+// =========================
+async function toggleVoice() {
+    if (isRecording) {
+        stopAndSendVoice();
+    } else {
+        await startVoiceRecording();
+    }
+}
+
+async function startVoiceRecording() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioChunks = [];
+        mediaRecorder = new MediaRecorder(stream);
+
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) audioChunks.push(e.data);
+        };
+
+        mediaRecorder.start();
+        isRecording = true;
+
+        // Show modal
+        document.getElementById("voiceModal").style.display = "flex";
+        document.getElementById("voiceStatus").textContent = "🎤 កំពុងថតសំឡេង...";
+        document.getElementById("voiceIcon").className = "fas fa-stop";
+        document.getElementById("voiceBtn").classList.add("recording");
+
+    } catch (err) {
+        console.error("Microphone error:", err);
+        alert("មិនអាចប្រើ Microphone បាន។ សូមអនុញ្ញាត Permission ✅");
+    }
+}
+
+function cancelVoice() {
+    if (mediaRecorder && isRecording) {
+        mediaRecorder.stream.getTracks().forEach(t => t.stop());
+        mediaRecorder.stop();
+    }
+    isRecording = false;
+    audioChunks = [];
+    document.getElementById("voiceModal").style.display = "none";
+    document.getElementById("voiceIcon").className = "fas fa-microphone";
+    document.getElementById("voiceBtn").classList.remove("recording");
+}
+
+async function stopAndSendVoice() {
+    if (!mediaRecorder || !isRecording) return;
+
+    document.getElementById("voiceStatus").textContent = "⏳ កំពុងដំណើរការ...";
+
+    mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+        const reader = new FileReader();
+
+        reader.onload = async (e) => {
+            const base64Audio = e.target.result.split(",")[1];
+            document.getElementById("voiceModal").style.display = "none";
+            isRecording = false;
+            document.getElementById("voiceIcon").className = "fas fa-microphone";
+            document.getElementById("voiceBtn").classList.remove("recording");
+
+            // Show voice message placeholder
+            addMessage("user", "🎤 [Voice Message]");
+            showTyping();
+
+            try {
+                const res = await fetch(`${API_BASE}/voice`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ audioBase64: base64Audio, senderId: getUserId() }),
+                });
+
+                const data = await res.json();
+                hideTyping();
+
+                if (data.ok) {
+                    // Show transcribed text + reply
+                    if (data.text) {
+                        // Replace placeholder with actual transcription
+                        const msgs = document.querySelectorAll(".message.user .message-content");
+                        const last = msgs[msgs.length - 1];
+                        if (last) last.innerHTML = `🎤 "${data.text}"`;
+                    }
+                    addMessage("assistant", data.reply);
+                    saveChatSession(data.text || "[Voice]", data.reply);
+                } else {
+                    addMessage("assistant", data.reply || "សូមអភ័យទោស! មានបញ្ហា 🙏");
+                }
+            } catch (err) {
+                hideTyping();
+                console.error("Voice error:", err);
+                addMessage("assistant", "សូមអភ័យទោស! មានបញ្ហាក្នុងការផ្ញើសំឡេង 🙏");
+            }
+        };
+
+        reader.readAsDataURL(audioBlob);
+        mediaRecorder.stream.getTracks().forEach(t => t.stop());
+    };
+
+    mediaRecorder.stop();
+}
+
+// =========================
+// Get or create user ID
+// =========================
+function getUserId() {
+    let id = localStorage.getItem("userId");
+    if (!id) {
+        id = "web-user-" + Math.random().toString(36).substr(2, 9);
+        localStorage.setItem("userId", id);
+    }
+    return id;
+}
+
+// =========================
+// MAIN: Send message
+// =========================
+async function sendMessage() {
+    const input = document.getElementById("userInput");
+    const text = input.value.trim();
+
+    // Must have text OR image
+    if (!text && !selectedImageBase64) return;
+
+    // Disable send button
+    const sendBtn = document.getElementById("sendBtn");
+    sendBtn.disabled = true;
+
+    input.value = "";
+    input.style.height = "auto";
+
+    // ===== IMAGE MODE =====
+    if (selectedImageBase64) {
+        const previewSrc = document.getElementById("imagePreview").src;
+        addMessage("user", previewSrc, true);
+        if (text) addMessage("user", text);
+        removeImage();
+        showTyping();
+
+        try {
+            const res = await fetch(`${API_BASE}/image`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    imageBase64: selectedImageBase64 || previewSrc.split(",")[1],
+                    message: text || null,
+                    senderId: getUserId(),
+                }),
+            });
+
+            const data = await res.json();
+            hideTyping();
+
+            if (data.ok) {
+                addMessage("assistant", data.reply);
+                saveChatSession(text || "[Image]", data.reply);
+            } else {
+                addMessage("assistant", "សូមអភ័យទោស! មានបញ្ហា 🙏");
+            }
+        } catch (err) {
+            hideTyping();
+            console.error("Image error:", err);
+            addMessage("assistant", "សូមអភ័យទោស! មានបញ្ហាក្នុងការផ្ញើរូបភាព 🙏");
+        }
+
+        sendBtn.disabled = false;
+        return;
+    }
+
+    // ===== TEXT MODE =====
+    addMessage("user", text);
+    showTyping();
+
+    try {
+        const res = await fetch(`${API_BASE}/chat`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: text, senderId: getUserId() }),
+        });
+
+        const data = await res.json();
+        hideTyping();
+
+        if (data.ok) {
+            addMessage("assistant", data.reply);
+            saveChatSession(text, data.reply);
+        } else {
+            addMessage("assistant", "សូមអភ័យទោស! មានបញ្ហា 🙏");
+        }
+    } catch (err) {
+        hideTyping();
+        console.error("Chat error:", err);
+        addMessage("assistant", "សូមអភ័យទោស! Server មានបញ្ហា 🙏");
+    }
+
+    sendBtn.disabled = false;
+}
+
+// =========================
+// Save chat session
+// =========================
+function saveChatSession(userMsg, aiReply) {
+    if (!currentSessionId) {
+        currentSessionId = Date.now().toString();
+    }
+
+    const existing = chatSessions.find(s => s.id === currentSessionId);
+    if (existing) {
+        existing.messages.push({ user: userMsg, ai: aiReply });
+        existing.lastUpdated = Date.now();
+    } else {
+        chatSessions.unshift({
+            id: currentSessionId,
+            title: userMsg.slice(0, 30) + (userMsg.length > 30 ? "..." : ""),
+            messages: [{ user: userMsg, ai: aiReply }],
+            lastUpdated: Date.now(),
+        });
+    }
+
+    // Keep max 20 sessions
+    if (chatSessions.length > 20) chatSessions = chatSessions.slice(0, 20);
+    localStorage.setItem("chatSessions", JSON.stringify(chatSessions));
+    renderChatHistory();
+}
+
+// =========================
+// Render sidebar chat history
+// =========================
+function renderChatHistory() {
+    const container = document.getElementById("chatHistory");
+    container.innerHTML = "";
+
+    chatSessions.forEach(session => {
+        const div = document.createElement("div");
+        div.className = `history-item ${session.id === currentSessionId ? "active" : ""}`;
+        div.innerHTML = `
+            <span onclick="loadSession('${session.id}')">💬 ${session.title}</span>
+            <button onclick="deleteSession('${session.id}')"><i class="fas fa-trash"></i></button>
+        `;
+        container.appendChild(div);
+    });
+}
+
+// =========================
+// Load session
+// =========================
+function loadSession(id) {
+    const session = chatSessions.find(s => s.id === id);
+    if (!session) return;
+
+    currentSessionId = id;
+    const chatBox = document.getElementById("chatBox");
+    chatBox.innerHTML = "";
+
+    session.messages.forEach(msg => {
+        addMessage("user", msg.user);
+        addMessage("assistant", msg.ai);
+    });
+
+    renderChatHistory();
+    document.getElementById("sidebar").classList.remove("open");
+}
+
+// =========================
+// Delete session
+// =========================
+function deleteSession(id) {
+    chatSessions = chatSessions.filter(s => s.id !== id);
+    localStorage.setItem("chatSessions", JSON.stringify(chatSessions));
+    if (currentSessionId === id) {
+        newChat();
+    } else {
+        renderChatHistory();
+    }
+}
+
+// =========================
+// New chat
+// =========================
+function newChat() {
+    currentSessionId = null;
+    const chatBox = document.getElementById("chatBox");
+    chatBox.innerHTML = `
+        <div class="welcome-screen" id="welcomeScreen">
+            <div class="welcome-icon">🤖</div>
+            <h2>សួស្តី! ខ្ញុំជា Khmer AI</h2>
+            <p>ខ្ញុំអាចជួយបានគ្រប់យ៉ាង!</p>
+            <div class="suggestion-cards">
+                <div class="card" onclick="sendSuggestion('ពន្យល់ AI ឲខ្ញុំយល់')">💡 ពន្យល់ AI</div>
+                <div class="card" onclick="sendSuggestion('សរសេរ Code Python')">💻 សរសេរ Code</div>
+                <div class="card" onclick="sendSuggestion('បកប្រែ English ទៅ ខ្មែរ')">🌍 បកប្រែភាសា</div>
+                <div class="card" onclick="sendSuggestion('ជួយខ្ញុំសរសេរ Email')">✉️ សរសេរ Email</div>
+            </div>
+        </div>`;
+    removeImage();
+    renderChatHistory();
+    document.getElementById("sidebar").classList.remove("open");
+}
+
+// =========================
+// Clear current chat
+// =========================
+function clearChat() {
+    if (currentSessionId) {
+        deleteSession(currentSessionId);
+    } else {
+        newChat();
+    }
+}
+
+// =========================
+// Init
+// =========================
+renderChatHistory();
+</script>
+</body>
+</html>

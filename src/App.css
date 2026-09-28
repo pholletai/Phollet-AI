@@ -1,0 +1,131 @@
+body {
+  margin: 0;
+  background: radial-gradient(circle at top left, #1a0033, #0b001a);
+  color: #fff;
+  font-family: "Poppins", sans-serif;
+}
+
+.ai-dashboard {
+  display: flex;
+  height: 100vh;
+}
+
+.sidebar {
+  width: 260px;
+  background: linear-gradient(180deg, #3b0066, #1a0033);
+  box-shadow: 0 0 20px #9b59b6;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  animation: glow 3s infinite alternate;
+}
+
+@keyframes glow {
+  from { box-shadow: 0 0 10px #9b59b6; }
+  to { box-shadow: 0 0 25px #b366ff; }
+}
+
+.logo {
+  font-size: 1.5rem;
+  color: #e0b3ff;
+  text-shadow: 0 0 10px #b366ff;
+}
+
+.sidebar ul {
+  list-style: none;
+  padding: 0;
+}
+
+.sidebar li {
+  margin: 15px 0;
+  cursor: pointer;
+  transition: color 0.3s;
+}
+
+.sidebar li:hover {
+  color: #b366ff;
+}
+
+.chat-section {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background-color: #0f0f1a;
+}
+
+.agent-header {
+  display: flex;
+  align-items: center;
+  padding: 15px;
+  background-color: #1a1a2e;
+  border-bottom: 1px solid #333;
+}
+
+.agent-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #b366ff, #3b0066);
+  margin-right: 10px;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% { box-shadow: 0 0 5px #b366ff; }
+  100% { box-shadow: 0 0 20px #b366ff; }
+}
+
+.chat-box {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.bubble {
+  margin: 10px 0;
+  padding: 12px 16px;
+  border-radius: 20px;
+  max-width: 70%;
+  animation: fadeIn 0.5s ease-in;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.bubble.user {
+  background-color: #3b3b6b;
+  align-self: flex-start;
+}
+
+.bubble.assistant {
+  background-color: #2e2e4f;
+  align-self: flex-end;
+}
+
+.input-bar {
+  display: flex;
+  padding: 10px;
+  background-color: #1f1f3a;
+}
+
+.input-bar input {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  border-radius: 8px;
+  background-color: #2e2e4f;
+  color: #fff;
+}
+
+.input-bar button {
+  background-color: #9b59b6;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  color: white;
+  cursor: pointer;
+  margin-left: 10px;
+}
