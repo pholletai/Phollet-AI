@@ -3,30 +3,27 @@ require('path');
 const { GoogleGenAI } = require('@google/genai');
 const express = require('express');
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '8mb' }));
 const { Ollama } = require('ollama');
 const cors = require('cors');
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-const { Pool } = require('pg');
+const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
+const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STRIPE_SECRET_KEY) : null;
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const Groq = require('groq-sdk');
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const groq = process.env.GROQ_API_KEY ? new Groq({ apiKey: process.env.GROQ_API_KEY }) : null;
+const DEFAULT_SYSTEM_PROMPT = 'You are an expert Senior Full-Stack Web Developer and UI/UX Designer. Your goal is to help users design, build, code, and troubleshoot websites and web applications efficiently using modern frameworks (HTML, CSS, React, Tailwind, Node.js, etc.). Provide clean, production-ready code snippets and UX design best practices.';
 const fs = require('fs');
 
 const ollamaClient = new Ollama();
 
-const { query, queryOne, queryAll, initSchema } = require('./db');
+const { pool, query, queryOne, queryAll, initSchema } = require('./db');
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: {
-    rejectUnauthorized: false
+app.post("/api/chat", async (req, res, next) => {
+  if (!groq) {
+    if (ai) return next();
+    return res.status(503).json({ error: 'AI provider is not configured' });
   }
-});
-
-app.post("/api/chat", async (req, res) => {
   try {
    const prompt = req.body.message || req.body.prompt;
 
@@ -41,7 +38,7 @@ if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
       messages: [
         { 
           role: "system", 
-          content: "Always respond in the exact same language used by the user in their prompt (e.g., Khmer, English, Thai). Never output Chinese unless the user explicitly asks in Chinese." 
+          content: DEFAULT_SYSTEM_PROMPT
         },
         { role: "user", content: prompt }
       ]
@@ -60,6 +57,9 @@ if (!prompt || typeof prompt !== "string" || !prompt.trim()) {
 });
 
 app.post("/register", async (req, res) => {
+  if (!pool) {
+    return res.status(503).json({ error: 'Database is not configured' });
+  }
   const { username, password } = req.body;
   const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -95,6 +95,9 @@ app.use(cors({
   allowedHeaders: ['Content-Type']
 }));
 
+app.get('/health', (req, res) => {
+  res.json({ ok: true });
+});
 
 app.get('/', (req, res) => {
   res.sendFile(__dirname + '/public/phollet-chat-ui.html');
@@ -311,40 +314,8 @@ function clearHistory(username) {
 }
 
 
-function buildSystemPrompt(username, userInfo) {
-  const systemPrompt = `Phollet AI Agent អ្នកជាជំនួយការអភិវឌ្ឍន៍វេបសាយ (AI Web Developer Agent) ដែលមានសមត្ថភាពបង្កើត កែប្រែ និងគ្រប់គ្រងវេបសាយដោយស្វ័យប្រវត្ត។
-(คุณคือ AI Web Developer Agent ที่มีความสามารถในการสร้าง แก้ไข และจัดการเว็บไซต์โดยอัតโนមัติ)
-
-### AGENT CORE INSTRUCTION
-1. คุณมีหน้าที่รับคำสั่งจากผู้ใช้เพื่อนำไปสร้างหน้าเว็บ හෝจัดการโปรเจกต์
-2. หากคำสั่งนั้นจำเป็นต้องใช้เครื่องมือ (Tools) ให้คุณตอบกลับเป็นรูปแบบ JSON ตามที่กำหนดไว้ด้านล่างนี้ "ทันที" ห้ามอธิบายข้อความอื่นปนเด็ดขาด!
-3. เมื่อคุณได้รับผลลัพธ์จากการใช้เครื่องมือแล้ว คุณค่อยนำข้อมูลนั้นมาสรุปและอธิบายให้ผู้ใช้ฟังตามภาษาที่ผู้ใช้เลือกพิมพ์มา
-
-### AVAILABLE TOOLS (เครื่องมือที่คุณสามารถเลือกใช้ได้)
-หากต้องการใช้เครื่องมือ ให้ตอบในรูปแบบ JSON นี้เท่านั้น:
-- สำหรับสร้างไฟล์เว็บใหม่ (HTML/CSS/JS):
-{"tool": "createNewWebPage", "args": {"projectName": "ชื่อโปรเจกต์", "fileName": "index.html", "codeContent": "โค้ดเว็บทั้งหมด"}}
-
-- สำหรับตรวจสอบโปรเจกต์ในระบบ:
-{"tool": "checkProjectStatus", "args": {"projectName": "ชื่อโปรเจกต์"}}
-
-### CRITICAL RULE: LANGUAGE MATCHING
-1. ALWAYS detect the language used by the user in their latest message.
-2. RESPOND EXACTLY in the same language that the user used to speak to you:
-   - If the user writes in THAI -> Reply in THAI.
-   - If the user writes in KHMER -> Reply in KHMER.
-   - If the user writes in ENGLISH -> Reply in ENGLISH.
-3. NEVER mix languages in a single response unless explicitly asked by the user.
-
-### PERSONALITY & TONE
-- Professional, helpful, concise, and smart.
-- Avoid robotic repetitions or filler words.
-
-## User Context
-- Username: ${username || 'Guest'}
-${userInfo ? `- Info: ${userInfo}` : ''}`;
-
-  return systemPrompt;
+function buildSystemPrompt() {
+  return DEFAULT_SYSTEM_PROMPT;
 }
 
 
@@ -385,6 +356,9 @@ const webAgentTools = {
 
 
 app.post('/api/chat', async (req, res) => {
+  if (!ai) {
+    return res.status(503).json({ error: 'AI provider is not configured' });
+  }
   const { username, message } = req.body;
 
   if (!message) {
@@ -395,7 +369,7 @@ app.post('/api/chat', async (req, res) => {
 
   try {
     const history = getHistory(userKey);
-    const systemPrompt = buildSystemPrompt(userKey, null);
+    const systemPrompt = buildSystemPrompt();
 
     const apiMessages = [
       { role: 'system', content: systemPrompt },
@@ -450,6 +424,9 @@ app.post('/api/chat/clear', async (req, res) => {
 
 
 app.post('/api/image', async (req, res) => {
+  if (!groq) {
+    return res.status(503).json({ error: 'AI provider is not configured' });
+  }
   try {
     const { image, prompt, userId } = req.body;
     const currentUserId = userId || 'default_user';
@@ -460,13 +437,15 @@ app.post('/api/image', async (req, res) => {
 
 
     let previousMessages = [];
-    try {
-      previousMessages = await queryAll(
-        'SELECT role, content FROM chat_history WHERE user_id = $1 ORDER BY id ASC',
-        [currentUserId]
-      );
-    } catch (dbError) {
-      console.error('ดึงข้อมูลล้มเหลว:', dbError);
+    if (pool) {
+      try {
+        previousMessages = await queryAll(
+          'SELECT role, content FROM chat_history WHERE user_id = $1 ORDER BY id ASC',
+          [currentUserId]
+        );
+      } catch (dbError) {
+        console.error('ดึงข้อมูลล้มเหลว:', dbError);
+      }
     }
 
 
@@ -490,14 +469,16 @@ app.post('/api/image', async (req, res) => {
     });
 
 
-    await query(
-      'INSERT INTO chat_history (user_id, role, content) VALUES ($1, $2, $3)',
-      [currentUserId, 'user', prompt || '[ส่งรูปภาพ]']
-    );
-    await query(
-      'INSERT INTO chat_history (user_id, role, content) VALUES ($1, $2, $3)',
-      [currentUserId, 'assistant', response.choices[0].message.content]
-    );
+    if (pool) {
+      await query(
+        'INSERT INTO chat_history (user_id, role, content) VALUES ($1, $2, $3)',
+        [currentUserId, 'user', prompt || '[ส่งรูปภาพ]']
+      );
+      await query(
+        'INSERT INTO chat_history (user_id, role, content) VALUES ($1, $2, $3)',
+        [currentUserId, 'assistant', response.choices[0].message.content]
+      );
+    }
 
     return res.json({ result: response.choices[0].message.content });
   } catch (error) {
@@ -509,14 +490,11 @@ app.post('/api/image', async (req, res) => {
 
 
 
-(async () => {
-  try {
-    await initSchema();
-    app.listen(5000, () => {
-      console.log('🚀 Server ដំណើរការប្រព័ន្ធរៀបចំ Database រួចរាល់លើ http://localhost:5000');
-    });
-  } catch (e) {
-    console.error('Startup failed:', e);
-    process.exit(1);
-  }
-})();
+const port = Number(process.env.PORT) || 5000;
+app.listen(port, '0.0.0.0', () => {
+  console.log(`🚀 Server listening on 0.0.0.0:${port}`);
+});
+
+initSchema().catch((error) => {
+  console.error('Database initialization unavailable; HTTP server remains available:', error.message);
+});

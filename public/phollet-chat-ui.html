@@ -5,6 +5,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PholletAI—Chat</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect x='2' y='2' width='44' height='44' rx='14' fill='%232e8b57'/%3E%3Cpath d='M17 36V12h11a8 8 0 0 1 0 16H17' fill='none' stroke='white' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
@@ -61,13 +62,13 @@
     .logo {
       width: 32px;
       height: 32px;
-      background: linear-gradient(135deg, var(--accent), #c084fc);
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 16px;
       flex-shrink: 0;
+    }
+
+    .brand-mark {
+      display: block;
+      width: 100%;
+      height: 100%;
     }
 
     .logo-text {
@@ -285,24 +286,17 @@
     }
 
     .welcome-logo {
-      width: 56px;
-      height: 56px;
-      background: linear-gradient(135deg, var(--accent), #c084fc);
-      border-radius: 16px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 28px;
+      width: 72px;
+      height: 72px;
       margin: 0 auto 20px;
       box-shadow: 0 0 40px rgba(124, 106, 255, 0.3);
+      border-radius: 21px;
     }
 
     .welcome h1 {
       font-size: 26px;
       font-weight: 600;
-      background: linear-gradient(135deg, #fff, var(--accent2));
-      -webkit-background-cli: text;
-      -webkit-text-fill-color: transparent;
+      color: var(--text);
       margin-bottom: 8px;
     }
 
@@ -470,6 +464,68 @@
       flex-shrink: 0;
     }
 
+    .composer-tools {
+      max-width: 720px;
+      margin: 0 auto 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .composer-tool {
+      width: 38px;
+      height: 38px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--input-bg);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 18px;
+    }
+
+    .composer-tool:hover {
+      border-color: var(--accent);
+      color: var(--accent2);
+    }
+
+    .hidden-file-input {
+      display: none;
+    }
+
+    .attachment-preview {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      max-width: min(360px, calc(100% - 92px));
+      padding: 5px 8px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: var(--input-bg);
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .attachment-preview img {
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      object-fit: cover;
+    }
+
+    .attachment-name {
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    .attachment-remove {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      font-size: 16px;
+    }
+
     .input-wrap {
       max-width: 720px;
       margin: 0 auto;
@@ -559,7 +615,7 @@
       border: 1px solid var(--border);
       border-radius: 20px;
       padding: 32px;
-      width: 440px;
+      width: min(440px, calc(100vw - 24px));
       animation: fadeUp 0.3s ease;
     }
 
@@ -655,6 +711,11 @@
       opacity: 0.9;
     }
 
+    .subscribe-btn:disabled {
+      opacity: 0.75;
+      cursor: not-allowed;
+    }
+
     .modal-close {
       width: 100%;
       padding: 12px;
@@ -672,29 +733,777 @@
       border-color: var(--accent);
       color: var(--text);
     }
+
+    .camera-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(0, 0, 0, 0.75);
+    }
+
+    .camera-modal.open,
+    .upload-modal.open {
+      display: flex;
+    }
+
+    .upload-modal {
+      position: fixed;
+      inset: 0;
+      z-index: 30;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(0, 0, 0, 0.75);
+    }
+
+    .upload-dialog {
+      width: min(480px, 100%);
+      padding: 24px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--surface);
+      text-align: center;
+    }
+
+    .upload-dialog h2 {
+      margin-bottom: 8px;
+      color: var(--text);
+      font-size: 20px;
+    }
+
+    .upload-dialog-description,
+    .upload-dialog-note {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .upload-dialog-note.error {
+      color: #f87171;
+    }
+
+    .upload-dropzone {
+      margin: 18px 0;
+      padding: 28px 16px;
+      border: 2px dashed var(--border);
+      border-radius: 14px;
+      background: var(--input-bg);
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .upload-dropzone.drag-over {
+      border-color: var(--accent2);
+      background: rgba(124, 106, 255, 0.12);
+    }
+
+    .upload-icon {
+      width: 42px;
+      height: 42px;
+      margin-bottom: 10px;
+      color: var(--accent2);
+    }
+
+    .upload-dropzone-title {
+      margin-bottom: 6px;
+      color: var(--text);
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .upload-browse-btn {
+      margin: 16px 0 8px;
+      padding: 10px 18px;
+      border: 0;
+      border-radius: 9px;
+      background: linear-gradient(135deg, var(--accent), #c084fc);
+      color: #fff;
+      font: 600 13px 'DM Sans', sans-serif;
+      cursor: pointer;
+    }
+
+    .upload-browse-btn:hover {
+      opacity: 0.9;
+    }
+
+    .upload-cancel-btn {
+      padding: 9px 14px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: transparent;
+      color: var(--muted);
+      font: 13px 'DM Sans', sans-serif;
+      cursor: pointer;
+    }
+
+    .upload-cancel-btn:hover {
+      border-color: var(--accent);
+      color: var(--text);
+    }
+
+    .camera-content {
+      width: min(560px, 100%);
+      padding: 18px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--surface);
+    }
+
+    .camera-content video,
+    .camera-content img {
+      display: block;
+      width: 100%;
+      max-height: 60vh;
+      margin: 12px 0;
+      border-radius: 10px;
+      background: #000;
+      object-fit: contain;
+    }
+
+    .camera-content img {
+      display: none;
+    }
+
+    .camera-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .camera-actions button {
+      padding: 9px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--input-bg);
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    .camera-actions .camera-primary {
+      border-color: transparent;
+      background: var(--accent);
+    }
+
+    @media (max-width: 600px) {
+      body {
+        flex-direction: column;
+      }
+
+      .sidebar {
+        width: 100%;
+        height: 116px;
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+      }
+
+      .sidebar-header {
+        min-height: 44px;
+        padding: 6px 12px;
+        border-bottom: 0;
+      }
+
+      .new-chat-btn {
+        position: absolute;
+        top: 5px;
+        right: 8px;
+        margin: 0;
+        padding: 8px 10px;
+      }
+
+      .chat-list {
+        min-height: 0;
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        overflow-x: auto;
+        overflow-y: hidden;
+        padding: 4px 8px;
+      }
+
+      .chat-section-label,
+      .sidebar-footer {
+        display: none;
+      }
+
+      .chat-item {
+        flex: 0 0 auto;
+        margin: 0;
+      }
+
+      .main {
+        width: 100%;
+        min-height: 0;
+      }
+
+      .top-bar {
+        padding: 0 12px;
+      }
+
+      .chat-area {
+        padding: 8px 0;
+      }
+
+      .welcome {
+        padding: 26px 8px 24px;
+      }
+
+      .welcome-logo {
+        width: 56px;
+        height: 56px;
+        margin-bottom: 14px;
+        border-radius: 16px;
+      }
+
+      .suggestions {
+        margin-top: 20px;
+      }
+
+      .input-area {
+        padding: 12px 12px 14px;
+      }
+
+      .upload-dialog {
+        padding: 20px 16px;
+      }
+    }
+  </style>
+  <style>
+    :root {
+      --bg: #f2f5f2;
+      --sidebar: #ffffff;
+      --surface: #ffffff;
+      --border: #e4eae5;
+      --accent: #2e8b57;
+      --accent2: #257348;
+      --text: #26352b;
+      --muted: #77847b;
+      --user-bubble: #e6f3e9;
+      --input-bg: #ffffff;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .sidebar {
+      width: 258px;
+      background: #fff;
+      border-right-color: #e3e9e4;
+    }
+
+    .sidebar-header {
+      padding: 22px 20px 18px;
+      border-bottom: 0;
+    }
+
+    .logo {
+      width: 36px;
+      height: 36px;
+      display: grid;
+      place-items: center;
+      border-radius: 11px;
+      background: #2e8b57;
+      color: #fff;
+      font-size: 22px;
+      font-weight: 700;
+    }
+
+    .logo .brand-mark {
+      display: none;
+    }
+
+    .logo::after {
+      content: "P";
+    }
+
+    .logo-text {
+      color: #28382e;
+      background: none;
+      -webkit-text-fill-color: currentColor;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .new-chat-btn {
+      margin: 4px 16px 18px;
+      min-height: 44px;
+      justify-content: center;
+      border: 0;
+      border-radius: 12px;
+      background: #e7f3e9;
+      color: #267449;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .new-chat-btn:hover {
+      border: 0;
+      background: #d9eddd;
+    }
+
+    .chat-list {
+      padding: 6px 12px;
+    }
+
+    .chat-section-label {
+      padding: 14px 10px 8px;
+      color: #87938a;
+      font-size: 10px;
+      letter-spacing: .09em;
+    }
+
+    .chat-item {
+      padding: 10px 12px;
+      color: #66736a;
+      border-radius: 9px;
+    }
+
+    .chat-item:hover,
+    .chat-item.active {
+      background: #edf5ee;
+      color: #267449;
+    }
+
+    .sidebar-footer {
+      border-top-color: #e8ede9;
+    }
+
+    .plan-badge {
+      background: #f3f7f3;
+      border-color: #e2eae3;
+    }
+
+    .plan-name {
+      color: #267449;
+    }
+
+    .main {
+      background: var(--bg);
+    }
+
+    .top-bar {
+      height: 70px;
+      padding: 0 34px;
+      border-bottom-color: #e4eae5;
+      background: rgba(255, 255, 255, .72);
+    }
+
+    .model-selector {
+      padding: 9px 13px;
+      border-color: #e1e8e2;
+      border-radius: 11px;
+      background: #fff;
+      color: #34453a;
+      font-weight: 600;
+    }
+
+    .model-selector:hover {
+      border-color: #b6d8be;
+      background: #fff;
+    }
+
+    .top-actions {
+      align-items: center;
+    }
+
+    .profile-avatar {
+      width: 36px;
+      height: 36px;
+      display: grid;
+      place-items: center;
+      border: 2px solid #fff;
+      border-radius: 50%;
+      background: #dcefe0;
+      color: #267449;
+      box-shadow: 0 0 0 1px #d8e4da;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .icon-btn {
+      display: none;
+    }
+
+    .chat-area {
+      padding: 24px 0 12px;
+    }
+
+    .chat-inner {
+      max-width: 860px;
+      padding: 0 30px;
+    }
+
+    .welcome {
+      padding: clamp(58px, 13vh, 150px) 10px 40px;
+      text-align: center;
+    }
+
+    .welcome-logo {
+      display: none;
+    }
+
+    .welcome h1 {
+      margin-bottom: 12px;
+      color: #26372c;
+      font-size: clamp(32px, 4vw, 42px);
+      font-weight: 700;
+      letter-spacing: -.035em;
+    }
+
+    .welcome p {
+      color: #77847b;
+      font-size: 16px;
+    }
+
+    .suggestions {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 34px;
+    }
+
+    .suggestion {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      border: 1px solid #e0e8e1;
+      border-radius: 999px;
+      background: #fff;
+      box-shadow: 0 3px 12px rgba(47, 70, 52, .035);
+    }
+
+    .suggestion:hover {
+      border-color: #b6d8be;
+      background: #f8fcf8;
+      transform: translateY(-1px);
+    }
+
+    .suggestion-icon {
+      margin: 0;
+      font-size: 16px;
+    }
+
+    .suggestion-title {
+      margin: 0;
+      color: #405147;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .suggestion-desc {
+      display: none;
+    }
+
+    .ai-avatar {
+      background: #e4f1e6;
+      color: #267449;
+    }
+
+    .message.user .bubble {
+      border: 1px solid #d8ebdc;
+      background: #e6f3e9;
+      color: #26372c;
+    }
+
+    .input-area {
+      padding: 16px 30px 22px;
+      background: linear-gradient(0deg, #f2f5f2 75%, rgba(242, 245, 242, 0));
+    }
+
+    .composer-tools {
+      max-width: 820px;
+      margin-bottom: 8px;
+    }
+
+    .input-wrap {
+      max-width: 820px;
+      min-height: 66px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px 8px 14px;
+      border: 1px solid #dfe7e0;
+      border-radius: 24px;
+      background: #fff;
+      box-shadow: 0 8px 28px rgba(43, 65, 47, .07);
+    }
+
+    .input-wrap:focus-within {
+      border-color: #a8cfb1;
+      box-shadow: 0 8px 28px rgba(43, 105, 58, .1);
+    }
+
+    .input-box {
+      flex: 1;
+      min-width: 0;
+      min-height: 40px;
+      max-height: 150px;
+      padding: 10px 4px;
+      border: 0;
+      border-radius: 0;
+      background: transparent;
+      color: #2c3b31;
+    }
+
+    .input-box:focus {
+      border-color: transparent;
+      outline: 0;
+    }
+
+    .input-box::placeholder {
+      color: #96a198;
+    }
+
+    .composer-tool {
+      flex: 0 0 38px;
+      width: 38px;
+      height: 38px;
+      border: 0;
+      border-radius: 50%;
+      background: transparent;
+      color: #78867c;
+      font-size: 19px;
+    }
+
+    .composer-tool:hover {
+      border: 0;
+      background: #eef5ef;
+      color: #267449;
+    }
+
+    .send-btn {
+      position: static;
+      flex: 0 0 42px;
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: #2e8b57;
+      font-size: 18px;
+    }
+
+    .send-btn:hover {
+      background: #257348;
+    }
+
+    .send-btn:disabled {
+      background: #dfe9e1;
+    }
+
+    .input-footer {
+      color: #89958c;
+      font-size: 11px;
+    }
+
+    .upload-dialog,
+    .camera-content,
+    .modal {
+      background: #fff;
+      color: #26352b;
+    }
+
+    .upload-dropzone {
+      background: #f5f8f5;
+    }
+
+    .upload-browse-btn,
+    .camera-actions .camera-primary,
+    .subscribe-btn {
+      background: #2e8b57;
+    }
+
+    .upload-dialog h2,
+    .upload-dropzone-title,
+    .welcome h1,
+    .modal h2 {
+      color: #26372c;
+    }
+
+    .upload-cancel-btn,
+    .modal-close,
+    .camera-actions button {
+      color: #5c6b60;
+    }
+
+    .nav-items {
+      display: grid;
+      gap: 4px;
+      padding: 0 12px 14px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding: 10px 12px;
+      border: 0;
+      border-radius: 9px;
+      background: transparent;
+      color: #66736a;
+      font: 500 13px 'DM Sans', sans-serif;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .nav-item:hover,
+    .nav-item.active {
+      background: #edf5ee;
+      color: #267449;
+    }
+
+    @media (max-width: 700px) {
+      body {
+        flex-direction: column;
+      }
+
+      .sidebar {
+        width: 100%;
+        height: auto;
+        flex: 0 0 auto;
+        border-right: 0;
+        border-bottom: 1px solid #e3e9e4;
+      }
+
+      .sidebar-header {
+        min-height: 58px;
+        padding: 10px 14px;
+      }
+
+      .new-chat-btn {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        margin: 0;
+        min-height: 36px;
+        padding: 8px 12px;
+      }
+
+      .nav-items {
+        display: flex;
+        overflow-x: auto;
+        padding: 0 8px 8px;
+      }
+
+      .nav-item {
+        flex: 0 0 auto;
+        padding: 8px 10px;
+      }
+
+      .chat-list,
+      .sidebar-footer {
+        display: none;
+      }
+
+      .top-bar {
+        height: 58px;
+        padding: 0 14px;
+      }
+
+      .chat-area {
+        padding: 8px 0;
+      }
+
+      .chat-inner {
+        padding: 0 16px;
+      }
+
+      .welcome {
+        padding: clamp(45px, 10vh, 90px) 0 28px;
+      }
+
+      .welcome p {
+        font-size: 14px;
+      }
+
+      .suggestions {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 9px;
+        margin-top: 26px;
+      }
+
+      .suggestion {
+        justify-content: flex-start;
+        width: 100%;
+        padding: 11px 14px;
+      }
+
+      .input-area {
+        padding: 10px 12px 14px;
+      }
+
+      .input-wrap {
+        min-height: 58px;
+        gap: 3px;
+        padding: 6px 7px 6px 9px;
+      }
+
+      .composer-tool {
+        flex-basis: 34px;
+        width: 34px;
+        height: 36px;
+      }
+
+      .send-btn {
+        flex-basis: 38px;
+        width: 38px;
+        height: 38px;
+      }
+
+      .input-box {
+        font-size: 13px;
+      }
+    }
   </style>
 </head>
 
 <body>
 
+  <svg aria-hidden="true" width="0" height="0" style="position:absolute">
+    <defs>
+      <linearGradient id="phollet-logo-gradient" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#2e8b57"></stop>
+        <stop offset="1" stop-color="#4ca96f"></stop>
+      </linearGradient>
+      <symbol id="phollet-logo-mark" viewBox="0 0 48 48">
+        <rect x="2" y="2" width="44" height="44" rx="14" fill="url(#phollet-logo-gradient)"></rect>
+        <path d="M13 10h22a6 6 0 0 1 6 6v14a6 6 0 0 1-6 6H24l-8 6v-6h-3a6 6 0 0 1-6-6V16a6 6 0 0 1 6-6Z" fill="none" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"></path>
+        <path d="M19 32V17h8a5 5 0 0 1 0 10h-8" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"></path>
+      </symbol>
+    </defs>
+  </svg>
+
   <div class="sidebar">
     <div class="sidebar-header">
-      <div class="logo">✨</div>
-      <span class="logo-text">PholletAI</span>
+      <div class="logo"><svg class="brand-mark" viewBox="0 0 48 48" aria-hidden="true"><use href="#phollet-logo-mark"></use></svg></div>
+      <span class="logo-text">Phollet AI</span>
     </div>
-    <button class="new-chat-btn" onclick="newChat()">✏️ <span>ចាប់ផ្តើមថ្មី</span></button>
+    <button class="new-chat-btn" onclick="newChat()">＋ <span>New Chat</span></button>
+    <nav class="nav-items" aria-label="Main navigation">
+      <button class="nav-item active" type="button" data-nav="agents" onclick="selectNavigation(this)">🤖 <span>AI Agents</span></button>
+      <button class="nav-item" type="button" data-nav="history" onclick="selectNavigation(this)">🕒 <span>History</span></button>
+      <button class="nav-item" type="button" data-nav="saved" onclick="selectNavigation(this)">🔖 <span>Saved</span></button>
+      <button class="nav-item" type="button" data-nav="tools" onclick="selectNavigation(this)">🗂 <span>AI Tools</span></button>
+    </nav>
     <div class="chat-list">
-      <div class="chat-section-label">ថ្ងៃនេះ</div>
-      <div class="chat-item active">Facebook Bot Integration</div>
-      <div class="chat-item">ប្រព័ន្ធ Subscription Pro</div>
+      <div class="chat-section-label">RECENT CHATS</div>
+      <div class="chat-item" data-topic="facebook-bot">Facebook Bot Integration</div>
+      <div class="chat-item" data-topic="subscription-pro">ប្រព័ន្ធ Subscription Pro</div>
       <div class="chat-section-label">ម្សិលមិញ</div>
-      <div class="chat-item">Claude API Setup</div>
-      <div class="chat-item">Stripe Payment Flow</div>
-      <div class="chat-item">React Native App</div>
+      <div class="chat-item" data-topic="claude-api">Claude API Setup</div>
+      <div class="chat-item" data-topic="stripe-payment">Stripe Payment Flow</div>
+      <div class="chat-item" data-topic="react-native">React Native App</div>
+      <div class="chat-item" data-topic="node-webhook">Node.js Webhook Code</div>
       <div class="chat-section-label">ពីមុន</div>
-      <div class="chat-item">System Prompt Khmer</div>
-      <div class="chat-item">handleText.js Memory</div>
-      <div class="chat-item">Webhook Verification</div>
+      <div class="chat-item" data-topic="system-prompt">System Prompt Khmer</div>
+      <div class="chat-item" data-topic="handle-text-memory">handleText.js Memory</div>
+      <div class="chat-item" data-topic="webhook-verification">Webhook Verification</div>
     </div>
     <div class="sidebar-footer">
       <div class="plan-badge" onclick="document.querySelector('.modal-overlay').classList.add('open')">
@@ -709,39 +1518,32 @@
 
   <div class="main">
     <div class="top-bar">
-      <button class="model-selector">🤖 Phollet Sonnet ▾</button>
+      <button class="model-selector" type="button">Phollet Agent <span aria-hidden="true">⌄</span></button>
       <div class="top-actions">
-        <button class="icon-btn">⬆️</button>
-        <button class="icon-btn">⚙️</button>
+        <div class="profile-avatar" title="Profile" aria-label="Profile">P</div>
       </div>
     </div>
 
     <div class="chat-area" id="chatArea">
       <div class="chat-inner" id="chatInner">
         <div class="welcome" id="welcome">
-          <div class="welcome-logo">🤖</div>
-          <h1>PholletAI Assistant</h1>
-          <p>AI Assistant ខ្មែរ — ជំនួយការ Facebook Support, Code, និងច្រើនទៀត</p>
+          <h1>សួស្តី 👋</h1>
+          <p>តើថ្ងៃនេះ Phollet AI អាចជួយអ្វីបាន?</p>
           <div class="suggestions">
-            <div class="suggestion" onclick="sendSuggestion('ជួយខ្ញុំ unlock Facebook account')">
-              <div class="suggestion-icon">🔓</div>
-              <div class="suggestion-title">Unlock Facebook Account</div>
-              <div class="suggestion-desc">ណែនាំជំហានដោះស្រាយ</div>
-            </div>
-            <div class="suggestion" onclick="sendSuggestion('Claude API is different from OpenAI?')">
-              <div class="suggestion-icon">🧠</div>
-              <div class="suggestion-title">Claude vs OpenAI</div>
-              <div class="suggestion-desc">ប្រៀបធៀប API ទាំងពីរ</div>
-            </div>
-            <div class="suggestion" onclick="sendSuggestion('សរសេរ Node.js webhook code សម្រាប់ Messenger')">
+            <div class="suggestion" onclick="sendSuggestion('ជួយបង្កើត Layout វេបសាយស្អាត ទំនើប និង responsive។')">
               <div class="suggestion-icon">💻</div>
-              <div class="suggestion-title">Messenger Webhook Code</div>
-              <div class="suggestion-desc">Node.js + Express ready</div>
+              <div class="suggestion-title">បង្កើត Layout វេបសាយ ›</div>
+              <div class="suggestion-desc"></div>
             </div>
-            <div class="suggestion" onclick="sendSuggestion('ប្រព័ន្ធ subscription Pro ធ្វើម៉េច?')">
-              <div class="suggestion-icon">🏦</div>
-              <div class="suggestion-title">Setup Subscription</div>
-              <div class="suggestion-desc">Stripe + Pro plans</div>
+            <div class="suggestion" onclick="sendSuggestion('ជួយឌីសាញ UI Component ដែលងាយប្រើ និងមានរូបរាងទំនើប។')">
+              <div class="suggestion-icon">🎨</div>
+              <div class="suggestion-title">ឌីសាញ UI Component ›</div>
+              <div class="suggestion-desc"></div>
+            </div>
+            <div class="suggestion" onclick="sendSuggestion('ជួយពិនិត្យកូដរបស់ខ្ញុំ និងដោះស្រាយ Bug ដោយពន្យល់មូលហេតុ។')">
+              <div class="suggestion-icon">⚡️</div>
+              <div class="suggestion-title">កែកូដ និងដោះស្រាយ Bug ›</div>
+              <div class="suggestion-desc"></div>
             </div>
           </div>
         </div>
@@ -749,12 +1551,60 @@
     </div>
 
     <div class="input-area">
+      <div class="composer-tools">
+        <input class="hidden-file-input" type="file" id="attachmentInput" accept="image/*" onchange="handleAttachmentSelect(event)">
+        <input class="hidden-file-input" type="file" id="mobileCameraInput" accept="image/*" capture="environment" onchange="handleCameraFileSelect(event)">
+        <div class="attachment-preview" id="attachmentPreview">
+          <img id="attachmentThumbnail" alt="">
+          <span class="attachment-name" id="attachmentName"></span>
+          <button class="attachment-remove" type="button" aria-label="ដករូបភាពចេញ" onclick="removeAttachment()">×</button>
+        </div>
+      </div>
       <div class="input-wrap">
-        <textarea class="input-box" id="inputBox" placeholder="សរសេរសំណួររបស់អ្នក..." rows="1"
+        <button class="composer-tool" type="button" title="ភ្ជាប់ឯកសារ" aria-label="ភ្ជាប់ឯកសារ" onclick="openUploadDialog()">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><path d="m8 12.5 6.7-6.7a4 4 0 0 1 5.7 5.7l-8.5 8.4a6 6 0 0 1-8.5-8.4l8.4-8.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+        </button>
+        <textarea class="input-box" id="inputBox" placeholder="សរសេរសំណួរ ឬប្រាប់ Phollet AI អំពីអ្វីមួយរបស់អ្នក..." rows="1"
           onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
-        <button class="send-btn" id="sendBtn" onclick="sendMessage()">➤</button>
+        <button class="composer-tool" type="button" title="បញ្ចូលសំឡេង" aria-label="បញ្ចូលសំឡេង" onclick="toggleVoiceInput()">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><rect x="9" y="3" width="6" height="12" rx="3" stroke="currentColor" stroke-width="1.8"></rect><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21m-3 0h6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>
+        </button>
+        <button class="send-btn" id="sendBtn" aria-label="ផ្ញើសារ" onclick="sendMessage()">
+          <svg viewBox="0 0 24 24" width="19" height="19" fill="none" aria-hidden="true"><path d="m21 3-7.2 18-3.5-7.3L3 10.2 21 3Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"></path><path d="M10.3 13.7 21 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"></path></svg>
+        </button>
       </div>
       <div class="input-footer">PholletAI អាចធ្វើខុស — សូមផ្ទៀងផ្ទាត់ព័ត៌មានសំខាន់ៗ</div>
+    </div>
+  </div>
+
+  <div class="camera-modal" id="cameraModal" role="dialog" aria-modal="true" aria-label="ថតរូបភាព">
+    <div class="camera-content">
+      <h2>ថតរូបភាព</h2>
+      <video id="cameraVideo" autoplay playsinline></video>
+      <img id="cameraPreview" alt="រូបភាពដែលបានថត">
+      <div class="camera-actions">
+        <button type="button" onclick="closeCamera()">បោះបង់</button>
+        <button type="button" id="retakePhotoBtn" onclick="retakePhoto()" style="display:none">ថតម្ដងទៀត</button>
+        <button type="button" id="capturePhotoBtn" class="camera-primary" onclick="capturePhoto()">ថតរូប</button>
+        <button type="button" id="usePhotoBtn" class="camera-primary" onclick="usePhoto()" style="display:none">ប្រើរូបនេះ</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="upload-modal" id="uploadModal" role="dialog" aria-modal="true" aria-labelledby="uploadDialogTitle" onclick="if(event.target===this)closeUploadDialog()">
+    <div class="upload-dialog">
+      <h2 id="uploadDialogTitle">ផ្ទុកឡើងរូបភាព</h2>
+      <div class="upload-dropzone" id="uploadDropzone">
+        <svg class="upload-icon" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+          <path d="M24 31V8m0 0-9 9m9-9 9 9M10 28v9a4 4 0 0 0 4 4h20a4 4 0 0 0 4-4v-9" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
+        </svg>
+        <p class="upload-dropzone-title">អូស និងទម្លាក់រូបភាពនៅទីនេះ</p>
+        <p class="upload-dialog-description">ឬចុចប៊ូតុងខាងក្រោម ដើម្បីជ្រើសរើសរូបភាពពីឧបករណ៍របស់អ្នក</p>
+        <button class="upload-browse-btn" type="button" onclick="document.getElementById('attachmentInput').click()">ជ្រើសរើសឯកសារ</button>
+        <p class="upload-dialog-note" id="uploadStatus" role="status" aria-live="polite">គាំទ្ររូបភាពប៉ុណ្ណោះ · ទំហំអតិបរមា 5MB</p>
+      </div>
+      <button class="upload-cancel-btn" type="button" onclick="closeUploadDialog();openCamera()">📷 ថតរូបភាព</button>
+      <button class="upload-cancel-btn" type="button" onclick="closeUploadDialog()">បោះបង់</button>
     </div>
   </div>
 
@@ -766,29 +1616,113 @@
         <div class="plan-card">
           <div class="plan-price">$9.99<span>/mo</span></div>
           <div class="plan-title">🔥 Pro</div>
-          <div class="plan-features">✓ Unlimited messages<br>✓ Claude Sonnet<br>✓ History ២ ឆ្នាំ<br>✓ File upload</div>
+          <div class="plan-features">✓ តម្លៃគ្រោងទុក<br>✓ ព័ត៌មានមុខងារនឹងប្រកាសពេលក្រោយ</div>
         </div>
         <div class="plan-card recommended">
           <div class="recommended-tag">ល្អបំផុត</div>
           <div class="plan-price">$19.99<span>/mo</span></div>
           <div class="plan-title">🚀 Pro+</div>
-          <div class="plan-features">✓ ទាំងអស់ Pro<br>✓ Claude Opus<br>✓ Priority queue<br>✓ API Access</div>
+          <div class="plan-features">✓ តម្លៃគ្រោងទុក<br>✓ ព័ត៌មានមុខងារនឹងប្រកាសពេលក្រោយ</div>
         </div>
       </div>
-      <button class="subscribe-btn">💳 ចុះឈ្មោះ Pro ឥឡូវ</button>
+      <button class="subscribe-btn" type="button" disabled>ប្រព័ន្ធទូទាត់នឹងមកដល់ឆាប់ៗនេះ</button>
       <button class="modal-close" onclick="document.querySelector('.modal-overlay').classList.remove('open')">បន្តប្រើ
         Free Plan</button>
     </div>
   </div>
 
   <script>
-    let messages = [
-      {
-        role: 'system',
-        content: `You are AI Phollet Agent, web development assistant. Intelligent according to the language the user types. Professional and helpful។`
-      }
-    ];
+    const CHAT_STORAGE_KEY = 'pholletai-conversations';
+    const topicPrompts = {
+      'facebook-bot': 'ជួយរៀបចំការរួមបញ្ចូល Facebook Messenger Bot ជាមួយ Node.js និង Express។ សូមណែនាំជំហាន និងឧទាហរណ៍កូដ។',
+      'subscription-pro': 'ជួយរចនាប្រព័ន្ធ Subscription Pro ដែលមានគម្រោង Free និង Pro ព្រមទាំងការគ្រប់គ្រងសមាជិក។',
+      'claude-api': 'បង្ហាញរបៀបតំឡើង និងប្រើប្រាស់ Claude API ក្នុងកម្មវិធី Node.js ដោយរក្សា API key ជា environment variable។',
+      'stripe-payment': 'ជួយរចនាដំណើរការបង់ប្រាក់ Stripe សម្រាប់ Subscription Pro រួមទាំង webhook។',
+      'react-native': 'ជួយរៀបចំកម្មវិធី React Native ដែលភ្ជាប់ទៅ backend API។',
+      'node-webhook': 'សរសេរ Node.js និង Express webhook code សម្រាប់ Facebook Messenger ដោយមានការផ្ទៀងផ្ទាត់ webhook។',
+      'system-prompt': 'ជួយសរសេរ និងកែលម្អ system prompt ភាសាខ្មែរសម្រាប់ AI assistant។',
+      'handle-text-memory': 'ពន្យល់ និងជួយកែលម្អ handleText.js ដើម្បីរក្សា conversation memory។',
+      'webhook-verification': 'ពន្យល់ពីការផ្ទៀងផ្ទាត់ Facebook webhook និងរបៀបធ្វើឱ្យ endpoint មានសុវត្ថិភាព។'
+    };
+    let conversations = loadConversations();
+    let currentConversationId = null;
     let isStreaming = false;
+    let pendingImage = null;
+    let cameraStream = null;
+    let capturedPhoto = '';
+
+    function loadConversations() {
+      try {
+        const stored = localStorage.getItem(CHAT_STORAGE_KEY);
+        const parsed = stored ? JSON.parse(stored) : {};
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+      } catch (error) {
+        console.error('Unable to load saved conversations:', error);
+        return {};
+      }
+    }
+
+    function persistConversations() {
+      try {
+        localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(conversations));
+      } catch (error) {
+        console.error('Unable to save conversations:', error);
+      }
+    }
+
+    function currentMessages() {
+      if (!currentConversationId) return [];
+      const messages = conversations[currentConversationId];
+      return Array.isArray(messages) ? messages : [];
+    }
+
+    function storeMessage(role, content) {
+      if (!currentConversationId) {
+        currentConversationId = 'chat-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+      }
+      if (!Array.isArray(conversations[currentConversationId])) {
+        conversations[currentConversationId] = [];
+      }
+      conversations[currentConversationId].push({ role, content });
+      persistConversations();
+    }
+
+    function updateActiveTopic() {
+      document.querySelectorAll('.chat-item[data-topic]').forEach(item => {
+        item.classList.toggle('active', item.dataset.topic === currentConversationId);
+      });
+    }
+
+    function selectNavigation(item) {
+      document.querySelectorAll('.nav-item').forEach(navItem => {
+        const active = navItem === item;
+        navItem.classList.toggle('active', active);
+        navItem.setAttribute('aria-current', active ? 'page' : 'false');
+      });
+    }
+
+    function toggleVoiceInput() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        document.querySelector('.input-footer').textContent = 'កម្មវិធីរុករកនេះមិនទាន់គាំទ្រការបញ្ចូលសំឡេងទេ។';
+        return;
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'km-KH';
+      recognition.interimResults = false;
+      recognition.onresult = event => {
+        const input = document.getElementById('inputBox');
+        input.value = [input.value.trim(), event.results[0][0].transcript].filter(Boolean).join(' ');
+        autoResize(input);
+        input.focus();
+      };
+      recognition.onerror = () => {
+        document.querySelector('.input-footer').textContent = 'មិនអាចសម្គាល់សំឡេងបានទេ។ សូមសាកល្បងម្ដងទៀត។';
+      };
+      recognition.start();
+    }
+
     function autoResize(el) {
       el.style.height = 'auto';
       el.style.height = Math.min(el.scrollHeight, 160) + 'px';
@@ -799,14 +1733,75 @@
     }
 
     function newChat() {
-      messages = [
-        {
-          role: 'system',
-          content: 'អ្នកជា PholletAI Assistant។ ឆ្លយតាមភាស user។'
-        }
-      ];
+      if (isStreaming) return;
+      currentConversationId = null;
       isStreaming = false;
-      document.getElementById('chatInner').innerHTML = `...`;
+      document.getElementById('chatInner').innerHTML = welcomeMarkup();
+      document.getElementById('inputBox').value = '';
+      document.getElementById('inputBox').style.height = 'auto';
+      removeAttachment();
+      updateActiveTopic();
+      scrollBottom();
+    }
+
+    function welcomeMarkup() {
+      return `<div class="welcome" id="welcome">
+        <h1>សួស្តី 👋</h1>
+        <p>តើថ្ងៃនេះ Phollet AI អាចជួយអ្វីបាន?</p>
+        <div class="suggestions">
+          <div class="suggestion" onclick="sendSuggestion('ជួយបង្កើត Layout វេបសាយស្អាត ទំនើប និង responsive។')">
+            <div class="suggestion-icon">💻</div>
+            <div class="suggestion-title">បង្កើត Layout វេបសាយ ›</div>
+            <div class="suggestion-desc"></div>
+          </div>
+          <div class="suggestion" onclick="sendSuggestion('ជួយឌីសាញ UI Component ដែលងាយប្រើ និងមានរូបរាងទំនើប។')">
+            <div class="suggestion-icon">🎨</div>
+            <div class="suggestion-title">ឌីសាញ UI Component ›</div>
+            <div class="suggestion-desc"></div>
+          </div>
+          <div class="suggestion" onclick="sendSuggestion('ជួយពិនិត្យកូដរបស់ខ្ញុំ និងដោះស្រាយ Bug ដោយពន្យល់មូលហេតុ។')">
+            <div class="suggestion-icon">⚡️</div>
+            <div class="suggestion-title">កែកូដ និងដោះស្រាយ Bug ›</div>
+            <div class="suggestion-desc"></div>
+          </div>
+        </div>
+      </div>`;
+    }
+
+    function openTopic(topicId) {
+      if (isStreaming || !topicPrompts[topicId]) return;
+      currentConversationId = topicId;
+      updateActiveTopic();
+      const saved = currentMessages();
+      if (saved.length) {
+        renderConversation(saved);
+      } else {
+        document.getElementById('chatInner').innerHTML = '';
+        sendPrompt(topicPrompts[topicId]);
+      }
+    }
+
+    function renderConversation(savedMessages) {
+      const chatInner = document.getElementById('chatInner');
+      chatInner.innerHTML = '';
+      if (!savedMessages.length) {
+        chatInner.innerHTML = welcomeMarkup();
+        return;
+      }
+      savedMessages.forEach(message => {
+        if (message.role === 'user') appendUserMsg(message.content);
+        if (message.role === 'assistant') appendAssistantMsg(message.content);
+      });
+      scrollBottom();
+    }
+
+    function appendAssistantMsg(text) {
+      const c = document.getElementById('chatInner');
+      const d = document.createElement('div');
+      d.className = 'message assistant';
+      d.innerHTML = `<div class="ai-avatar">🤖</div><div class="bubble-wrap"><div class="bubble"><div class="bubble-content">${DOMPurify.sanitize(marked.parse(text || ''))}</div></div></div>`;
+      c.appendChild(d);
+      scrollBottom();
     }
 
     function sendSuggestion(text) {
@@ -817,46 +1812,84 @@
     async function sendMessage() {
       const input = document.getElementById('inputBox');
       const text = input.value.trim();
-      if (!text || isStreaming) return;
+      return sendPrompt(text);
+    }
 
+    async function sendPrompt(text) {
+      if ((!text && !pendingImage) || isStreaming) return;
+      const input = document.getElementById('inputBox');
+      const image = pendingImage;
+      const imageHistoryText = image ? `[រូបភាព: ${image.name}]` : '';
+      const savedUserText = [text, imageHistoryText].filter(Boolean).join('\n');
       const welcome = document.getElementById('welcome');
       if (welcome) welcome.remove();
 
-      messages.push({ role: 'user', content: text });
-      appendUserMsg(text);
+      if (image) appendUserImage(image.dataUrl, image.name);
+      if (text) appendUserMsg(text);
+      storeMessage('user', savedUserText);
       input.value = '';
       input.style.height = 'auto';
+      removeAttachment();
 
-      const aiId = 'ai-' + Date.now();
+      const aiId = 'ai-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
       appendAIPlaceholder(aiId);
       isStreaming = true;
       document.getElementById('sendBtn').disabled = true;
 
       try {
-        const response = await fetch('/api/chat', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            message: messages[messages.length - 1].content
-
-          })
-        });
-
-        const data = await response.json();
-        const reply = data.result || data.error || "No response";
-
+        const response = image
+          ? await fetch('/api/image', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                image: image.dataUrl,
+                prompt: text,
+                userId: currentConversationId || 'default_user'
+              })
+            })
+          : await fetch('/api/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ message: text })
+            });
+        const data = await readApiResponse(response);
+        const reply = data.result || data.reply;
+        if (typeof reply !== 'string' || !reply.trim()) {
+          throw new Error('ម៉ាស៊ីនមេមិនបានផ្ញើចម្លើយត្រឡប់មកទេ។');
+        }
         await streamText(aiId, reply);
-        messages.push({ role: 'assistant', content: reply });
-      } catch (err) {
+        storeMessage('assistant', reply);
+      } catch (error) {
+        const message = `សូមអភ័យទោស មានបញ្ហាក្នុងការភ្ជាប់ទៅម៉ាស៊ីនមេ។ ${error.message || ''}`.trim();
         const el = document.getElementById(aiId);
-        if (el) el.textContent = '⚠️ Error connecting to API. Make sure you have a valid API key.';
+        if (el) el.innerHTML = DOMPurify.sanitize(marked.parse(message));
+        storeMessage('assistant', message);
+      } finally {
+        isStreaming = false;
+        document.getElementById('sendBtn').disabled = false;
+        scrollBottom();
       }
+    }
 
-      isStreaming = false;
-      document.getElementById('sendBtn').disabled = false;
-      scrollBottom();
+    async function readApiResponse(response) {
+      const body = await response.text();
+      let data = null;
+      if (body.trim()) {
+        try {
+          data = JSON.parse(body);
+        } catch (error) {
+          if (response.ok) throw new Error('ចម្លើយពីម៉ាស៊ីនមេមិនមែនជា JSON ត្រឹមត្រូវទេ។');
+        }
+      }
+      if (!response.ok) {
+        const detail = data && (data.error || data.message);
+        const fallback = body.trim().slice(0, 240);
+        throw new Error(detail || fallback || `កំហុស HTTP ${response.status}`);
+      }
+      if (!data || typeof data !== 'object') {
+        throw new Error('ម៉ាស៊ីនមេបានផ្ញើចម្លើយទទេ ឬមិនត្រឹមត្រូវ។');
+      }
+      return data;
     }
 
     function appendUserMsg(text) {
@@ -865,6 +1898,190 @@
       d.className = 'message user';
       d.innerHTML = `<div class="bubble"><div class="bubble-content">${esc(text)}</div></div>`;
       c.appendChild(d); scrollBottom();
+    }
+
+    function appendUserImage(dataUrl, name) {
+      const c = document.getElementById('chatInner');
+      const d = document.createElement('div');
+      d.className = 'message user';
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      const image = document.createElement('img');
+      image.src = dataUrl;
+      image.alt = name || 'រូបភាព';
+      image.style.cssText = 'display:block;max-width:240px;max-height:220px;border-radius:8px;object-fit:contain';
+      bubble.appendChild(image);
+      if (name) {
+        const caption = document.createElement('div');
+        caption.className = 'bubble-content';
+        caption.textContent = name;
+        bubble.appendChild(caption);
+      }
+      d.appendChild(bubble);
+      c.appendChild(d);
+      scrollBottom();
+    }
+
+    function handleAttachmentSelect(event) {
+      const file = event.target.files && event.target.files[0];
+      event.target.value = '';
+      if (file) readImageFile(file, true);
+    }
+
+    function handleCameraFileSelect(event) {
+      const file = event.target.files && event.target.files[0];
+      event.target.value = '';
+      if (file) readImageFile(file);
+    }
+
+    function readImageFile(file, closeUploadAfterRead = false) {
+      if (!file.type || !file.type.startsWith('image/')) {
+        reportImageFileError('សូមជ្រើសរើសឯកសាររូបភាព។', closeUploadAfterRead);
+        return;
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        reportImageFileError('រូបភាពធំពេក។ សូមជ្រើសរើសរូបភាពទំហំមិនលើស 5MB។', closeUploadAfterRead);
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        pendingImage = { dataUrl: reader.result, name: file.name || 'រូបភាព' };
+        renderAttachmentPreview();
+        if (closeUploadAfterRead) {
+          clearUploadError();
+          closeUploadDialog();
+        }
+      };
+      reader.onerror = () => reportImageFileError('មិនអាចអានឯកសាររូបភាពនេះបានទេ។', closeUploadAfterRead);
+      reader.readAsDataURL(file);
+    }
+
+    function reportImageFileError(message, showInUploadDialog) {
+      if (showInUploadDialog && document.getElementById('uploadModal').classList.contains('open')) {
+        const status = document.getElementById('uploadStatus');
+        status.textContent = message;
+        status.classList.add('error');
+        return;
+      }
+      showChatError(message);
+    }
+
+    function clearUploadError() {
+      const status = document.getElementById('uploadStatus');
+      status.textContent = 'គាំទ្ររូបភាពប៉ុណ្ណោះ · ទំហំអតិបរមា 5MB';
+      status.classList.remove('error');
+    }
+
+    function openUploadDialog() {
+      clearUploadError();
+      document.getElementById('uploadModal').classList.add('open');
+    }
+
+    function closeUploadDialog() {
+      document.getElementById('uploadModal').classList.remove('open');
+      document.getElementById('uploadDropzone').classList.remove('drag-over');
+    }
+
+    function handleUploadDrop(event) {
+      event.preventDefault();
+      const dropzone = document.getElementById('uploadDropzone');
+      dropzone.classList.remove('drag-over');
+      const file = event.dataTransfer.files && event.dataTransfer.files[0];
+      if (file) readImageFile(file, true);
+    }
+
+    function renderAttachmentPreview() {
+      const preview = document.getElementById('attachmentPreview');
+      preview.style.display = pendingImage ? 'flex' : 'none';
+      if (!pendingImage) return;
+      document.getElementById('attachmentThumbnail').src = pendingImage.dataUrl;
+      document.getElementById('attachmentName').textContent = pendingImage.name;
+    }
+
+    function removeAttachment() {
+      pendingImage = null;
+      renderAttachmentPreview();
+    }
+
+    function showChatError(message) {
+      if (isStreaming) return;
+      if (document.getElementById('welcome')) document.getElementById('welcome').remove();
+      appendAssistantMsg(message);
+    }
+
+    async function openCamera() {
+      if (window.matchMedia('(pointer: coarse)').matches) {
+        document.getElementById('mobileCameraInput').click();
+        return;
+      }
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        showChatError('កម្មវិធីរុករកនេះមិនគាំទ្រកាមេរ៉ាទេ។ សូមភ្ជាប់រូបភាពជំនួសវិញ។');
+        return;
+      }
+      try {
+        cameraStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+        const video = document.getElementById('cameraVideo');
+        video.srcObject = cameraStream;
+        await video.play();
+        document.getElementById('cameraPreview').style.display = 'none';
+        video.style.display = 'block';
+        document.getElementById('capturePhotoBtn').style.display = '';
+        document.getElementById('retakePhotoBtn').style.display = 'none';
+        document.getElementById('usePhotoBtn').style.display = 'none';
+        document.getElementById('cameraModal').classList.add('open');
+      } catch (error) {
+        stopCameraStream();
+        showChatError(`មិនអាចបើកកាមេរ៉ាបានទេ។ សូមពិនិត្យការអនុញ្ញាតកាមេរ៉ា។ ${error.message || ''}`.trim());
+      }
+    }
+
+    function capturePhoto() {
+      const video = document.getElementById('cameraVideo');
+      if (!video.videoWidth || !video.videoHeight) {
+        showChatError('កាមេរ៉ាមិនទាន់រួចរាល់ទេ។ សូមព្យាយាមម្ដងទៀត។');
+        return;
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      canvas.getContext('2d').drawImage(video, 0, 0);
+      capturedPhoto = canvas.toDataURL('image/jpeg', 0.9);
+      document.getElementById('cameraPreview').src = capturedPhoto;
+      document.getElementById('cameraPreview').style.display = 'block';
+      video.style.display = 'none';
+      document.getElementById('capturePhotoBtn').style.display = 'none';
+      document.getElementById('retakePhotoBtn').style.display = '';
+      document.getElementById('usePhotoBtn').style.display = '';
+    }
+
+    function retakePhoto() {
+      capturedPhoto = '';
+      document.getElementById('cameraPreview').style.display = 'none';
+      document.getElementById('cameraVideo').style.display = 'block';
+      document.getElementById('retakePhotoBtn').style.display = 'none';
+      document.getElementById('usePhotoBtn').style.display = 'none';
+      document.getElementById('capturePhotoBtn').style.display = '';
+    }
+
+    function usePhoto() {
+      if (!capturedPhoto) return;
+      pendingImage = { dataUrl: capturedPhoto, name: 'camera.jpg' };
+      renderAttachmentPreview();
+      closeCamera();
+    }
+
+    function stopCameraStream() {
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+        cameraStream = null;
+      }
+      document.getElementById('cameraVideo').srcObject = null;
+    }
+
+    function closeCamera() {
+      stopCameraStream();
+      capturedPhoto = '';
+      document.getElementById('cameraModal').classList.remove('open');
     }
 
     function appendAIPlaceholder(id) {
@@ -876,7 +2093,7 @@
     }
 
     async function streamText(id, text) {
-  text = text || ""; 
+  text = text || "";
   const el = document.getElementById(id);
   if (!el) return;
   el.innerHTML = '';
@@ -900,6 +2117,31 @@
       const el = document.getElementById(id);
       if (el) navigator.clipboard.writeText(el.textContent).catch(() => { });
     }
+
+    document.querySelectorAll('.chat-item[data-topic]').forEach(item => {
+      item.setAttribute('role', 'button');
+      item.setAttribute('tabindex', '0');
+      item.addEventListener('click', () => openTopic(item.dataset.topic));
+      item.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          openTopic(item.dataset.topic);
+        }
+      });
+    });
+
+    const uploadDropzone = document.getElementById('uploadDropzone');
+    uploadDropzone.addEventListener('dragover', event => {
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+      uploadDropzone.classList.add('drag-over');
+    });
+    uploadDropzone.addEventListener('dragleave', event => {
+      if (!uploadDropzone.contains(event.relatedTarget)) {
+        uploadDropzone.classList.remove('drag-over');
+      }
+    });
+    uploadDropzone.addEventListener('drop', handleUploadDrop);
 
     function esc(t) { return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>'); }
     function scrollBottom() { const a = document.getElementById('chatArea'); a.scrollTop = a.scrollHeight; }
