@@ -1,11 +1,28 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="km">
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>PholletAI—Chat</title>
+  <meta name="description" content="Phollet AI — Your Khmer-friendly AI assistant for web development and design.">
+  <meta name="theme-color" content="#f2f5f2">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Phollet AI">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect x='2' y='2' width='44' height='44' rx='14' fill='%232e8b57'/%3E%3Cpath d='M17 36V12h11a8 8 0 0 1 0 16H17' fill='none' stroke='white' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-EVH6LYMX4X"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-EVH6LYMX4X');
+  </script>
 
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
@@ -1125,6 +1142,29 @@
       font-weight: 700;
     }
 
+    .install-app-btn {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 11px;
+      border: 1px solid #dce8de;
+      border-radius: 999px;
+      background: #f5faf5;
+      color: #267449;
+      font: 600 12px 'DM Sans', sans-serif;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    .install-app-btn.visible {
+      display: inline-flex;
+    }
+
+    .install-app-btn:hover {
+      border-color: #b6d8be;
+      background: #edf6ef;
+    }
+
     .icon-btn {
       display: none;
     }
@@ -1357,6 +1397,97 @@
       color: #267449;
     }
 
+    .settings-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 110;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      background: rgba(24, 38, 28, .42);
+      backdrop-filter: blur(4px);
+    }
+
+    .settings-overlay.open {
+      display: flex;
+    }
+
+    .settings-dialog {
+      width: min(460px, 100%);
+      padding: 24px;
+      border: 1px solid #e2eae3;
+      border-radius: 18px;
+      background: #fff;
+      box-shadow: 0 24px 70px rgba(27, 52, 33, .2);
+      color: #26372c;
+    }
+
+    .settings-heading {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .settings-heading h2 {
+      margin-bottom: 5px;
+      font-size: 21px;
+    }
+
+    .settings-heading p,
+    .setting-description {
+      color: #77847b;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .settings-close {
+      width: 34px;
+      height: 34px;
+      border: 1px solid #e4ebe5;
+      border-radius: 50%;
+      background: #f7faf7;
+      color: #526257;
+      font-size: 19px;
+      cursor: pointer;
+    }
+
+    .setting-row {
+      padding: 14px 0;
+      border-top: 1px solid #edf1ed;
+    }
+
+    .setting-label {
+      margin-bottom: 4px;
+      color: #34473a;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .settings-clear {
+      margin-top: 12px;
+      padding: 9px 12px;
+      border: 1px solid #f0d2cf;
+      border-radius: 9px;
+      background: #fff8f7;
+      color: #a33d35;
+      font: 600 13px 'DM Sans', sans-serif;
+      cursor: pointer;
+    }
+
+    .settings-clear:hover {
+      background: #fff0ee;
+    }
+
+    .settings-status {
+      min-height: 18px;
+      margin-top: 8px;
+      color: #a33d35;
+      font-size: 12px;
+    }
+
     @media (max-width: 700px) {
       body {
         flex-direction: column;
@@ -1460,6 +1591,22 @@
         font-size: 13px;
       }
     }
+
+    @media (hover: none) and (pointer: coarse) {
+      html,
+      body {
+        overscroll-behavior: none;
+        touch-action: manipulation;
+      }
+
+      input,
+      textarea,
+      select,
+      button {
+        font-size: 16px !important;
+        touch-action: manipulation;
+      }
+    }
   </style>
 </head>
 
@@ -1490,6 +1637,7 @@
       <button class="nav-item" type="button" data-nav="history" onclick="selectNavigation(this)">🕒 <span>History</span></button>
       <button class="nav-item" type="button" data-nav="saved" onclick="selectNavigation(this)">🔖 <span>Saved</span></button>
       <button class="nav-item" type="button" data-nav="tools" onclick="selectNavigation(this)">🗂 <span>AI Tools</span></button>
+      <button class="nav-item" type="button" data-nav="settings" onclick="selectNavigation(this);openSettings()">⚙️ <span>Settings</span></button>
     </nav>
     <div class="chat-list">
       <div class="chat-section-label">RECENT CHATS</div>
@@ -1520,6 +1668,7 @@
     <div class="top-bar">
       <button class="model-selector" type="button">Phollet Agent <span aria-hidden="true">⌄</span></button>
       <div class="top-actions">
+        <button class="install-app-btn" id="installAppBtn" type="button">↓ <span>Install App</span></button>
         <div class="profile-avatar" title="Profile" aria-label="Profile">P</div>
       </div>
     </div>
@@ -1608,6 +1757,29 @@
     </div>
   </div>
 
+  <div class="settings-overlay" id="settingsModal" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" onclick="if(event.target===this)closeSettings()">
+    <section class="settings-dialog">
+      <div class="settings-heading">
+        <div>
+          <h2 id="settingsTitle">Settings</h2>
+          <p>គ្រប់គ្រងចំណូលចិត្ត និងទិន្នន័យរបស់អ្នក</p>
+        </div>
+        <button class="settings-close" type="button" aria-label="បិទ Settings" onclick="closeSettings()">×</button>
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">Response language</div>
+        <p class="setting-description">Automatic — Phollet AI replies in the language you use.</p>
+      </div>
+      <div class="setting-row">
+        <div class="setting-label">Chat history</div>
+        <p class="setting-description">Your saved conversations are stored in this browser.</p>
+        <button class="settings-clear" type="button" onclick="clearSavedConversations()">Clear saved conversations</button>
+        <p class="settings-status" id="settingsStatus" role="status" aria-live="polite"></p>
+      </div>
+      <button class="modal-close" type="button" onclick="closeSettings()">Done</button>
+    </section>
+  </div>
+
   <div class="modal-overlay" onclick="if(event.target===this)this.classList.remove('open')">
     <div class="modal">
       <h2>⚡ Upgrade Plan</h2>
@@ -1633,6 +1805,48 @@
 
   <script>
     const CHAT_STORAGE_KEY = 'pholletai-conversations';
+    let deferredInstallPrompt = null;
+
+    function setupPwa() {
+      if ('serviceWorker' in navigator && window.isSecureContext) {
+        navigator.serviceWorker.register('/sw.js').catch(error => {
+          console.error('Unable to register the offline service worker:', error);
+        });
+      }
+
+      const installButton = document.getElementById('installAppBtn');
+      if (!installButton) return;
+
+      const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent)
+        || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      const isInstalled = window.matchMedia('(display-mode: standalone)').matches
+        || navigator.standalone === true;
+      if (isIos && !isInstalled) installButton.classList.add('visible');
+
+      window.addEventListener('beforeinstallprompt', event => {
+        event.preventDefault();
+        deferredInstallPrompt = event;
+        installButton.classList.add('visible');
+      });
+
+      installButton.addEventListener('click', async () => {
+        if (!deferredInstallPrompt) {
+          document.querySelector('.input-footer').textContent = 'នៅលើ iPhone/iPad៖ ចុច Share រួចជ្រើស Add to Home Screen។';
+          return;
+        }
+        deferredInstallPrompt.prompt();
+        await deferredInstallPrompt.userChoice;
+        deferredInstallPrompt = null;
+        installButton.classList.remove('visible');
+      });
+
+      window.addEventListener('appinstalled', () => {
+        deferredInstallPrompt = null;
+        installButton.classList.remove('visible');
+      });
+    }
+
+    setupPwa();
     const topicPrompts = {
       'facebook-bot': 'ជួយរៀបចំការរួមបញ្ចូល Facebook Messenger Bot ជាមួយ Node.js និង Express។ សូមណែនាំជំហាន និងឧទាហរណ៍កូដ។',
       'subscription-pro': 'ជួយរចនាប្រព័ន្ធ Subscription Pro ដែលមានគម្រោង Free និង Pro ព្រមទាំងការគ្រប់គ្រងសមាជិក។',
@@ -1699,6 +1913,36 @@
         navItem.classList.toggle('active', active);
         navItem.setAttribute('aria-current', active ? 'page' : 'false');
       });
+    }
+
+    function openSettings() {
+      document.getElementById('settingsStatus').textContent = '';
+      document.getElementById('settingsModal').classList.add('open');
+      document.querySelector('.settings-close').focus();
+    }
+
+    function closeSettings() {
+      document.getElementById('settingsModal').classList.remove('open');
+      document.querySelector('[data-nav="settings"]').focus();
+    }
+
+    function clearSavedConversations() {
+      if (isStreaming) {
+        document.getElementById('settingsStatus').textContent = 'Wait for the current response to finish before clearing conversations.';
+        return;
+      }
+      if (!window.confirm('Clear all conversations saved in this browser? This cannot be undone.')) return;
+
+      try {
+        localStorage.removeItem(CHAT_STORAGE_KEY);
+        conversations = {};
+        currentConversationId = null;
+        newChat();
+        document.getElementById('settingsStatus').textContent = 'Saved conversations cleared.';
+      } catch (error) {
+        console.error('Unable to clear saved conversations:', error);
+        document.getElementById('settingsStatus').textContent = 'Could not clear saved conversations. Please try again.';
+      }
     }
 
     function toggleVoiceInput() {

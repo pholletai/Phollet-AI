@@ -1,0 +1,26 @@
+{
+  "id": "/",
+  "name": "Phollet AI",
+  "short_name": "Phollet AI",
+  "description": "Your Khmer-friendly AI assistant for web development and design.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f2f5f2",
+  "theme_color": "#f2f5f2",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
