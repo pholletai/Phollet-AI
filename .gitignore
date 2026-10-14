@@ -1,5 +1,7 @@
 # Dependencies and generated builds
 node_modules/
+.next/
+.turbo/
 build/
 dist/
 web-build/
