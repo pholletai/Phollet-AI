@@ -11,14 +11,59 @@ export class DatabaseConfigurationError extends Error {
   }
 }
 
+export function databaseErrorCode(error: unknown): string | undefined {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    typeof error.code === "string"
+      ? error.code
+      : undefined
+  );
+}
+
+export function databaseFailureMessage(error: unknown): string | null {
+  const code = databaseErrorCode(error) ?? "";
+  if (
+    code.startsWith("08") ||
+    [
+      "ECONNREFUSED",
+      "ECONNRESET",
+      "ETIMEDOUT",
+      "EHOSTUNREACH",
+      "ENETUNREACH",
+      "ENOTFOUND",
+      "SELF_SIGNED_CERT_IN_CHAIN",
+      "ERR_TLS_CERT_ALTNAME_INVALID",
+      "CERT_HAS_EXPIRED",
+      "57P01",
+      "57P03",
+      "53300",
+    ].includes(code)
+  ) {
+    return "The account database is temporarily unreachable. Please try again shortly.";
+  }
+  if (["28P01", "3D000", "3F000", "42501", "42P01"].includes(code)) {
+    return "The account database configuration needs attention. Please contact the administrator.";
+  }
+  return null;
+}
+
 export function getPool(): Pool {
   if (!process.env.DATABASE_URL) throw new DatabaseConfigurationError();
   if (!pool) {
     pool = new Pool({
       connectionString: process.env.DATABASE_URL,
-      max: 5,
-      idleTimeoutMillis: 20_000,
-      connectionTimeoutMillis: 5_000,
+      max: 2,
+      idleTimeoutMillis: 10_000,
+      connectionTimeoutMillis: 10_000,
+      keepAlive: true,
+    });
+    pool.on("error", (error: Error & { code?: string }) => {
+      console.error("An idle PostgreSQL connection failed.", {
+        errorName: error.name,
+        errorCode: error.code,
+      });
     });
   }
   return pool;
@@ -31,7 +76,8 @@ export async function ensureBillingSchema(): Promise<void> {
         CREATE TABLE IF NOT EXISTS builder_users (
           id UUID PRIMARY KEY,
           email TEXT NOT NULL UNIQUE,
-          password_hash TEXT NOT NULL,
+          password_hash TEXT,
+          google_sub TEXT,
           verified_at TIMESTAMPTZ,
           verification_token_hash TEXT,
           verification_expires_at TIMESTAMPTZ,
@@ -67,6 +113,17 @@ export async function ensureBillingSchema(): Promise<void> {
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
       `);
+      await getPool().query(
+        "ALTER TABLE builder_users ALTER COLUMN password_hash DROP NOT NULL",
+      );
+      await getPool().query(
+        "ALTER TABLE builder_users ADD COLUMN IF NOT EXISTS google_sub TEXT",
+      );
+      await getPool().query(
+        `CREATE UNIQUE INDEX IF NOT EXISTS builder_users_google_sub_idx
+         ON builder_users (google_sub)
+         WHERE google_sub IS NOT NULL`,
+      );
     })().catch((error: unknown) => {
       schemaInitialization = undefined;
       throw error;
@@ -83,7 +140,14 @@ export async function withTransaction<T>(operation: (client: PoolClient) => Prom
     await client.query("COMMIT");
     return result;
   } catch (error) {
-    await client.query("ROLLBACK");
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      console.error("A PostgreSQL transaction rollback failed.", {
+        errorName: rollbackError instanceof Error ? rollbackError.name : "UnknownError",
+        errorCode: databaseErrorCode(rollbackError),
+      });
+    }
     throw error;
   } finally {
     client.release();

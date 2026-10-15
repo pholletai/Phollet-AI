@@ -227,7 +227,28 @@ export default function Builder() {
 
   useEffect(() => {
     const controller = new AbortController();
-    const verificationToken = new URL(window.location.href).searchParams.get("verify");
+    const pageUrl = new URL(window.location.href);
+    const verificationToken = pageUrl.searchParams.get("verify");
+    const googleError = pageUrl.searchParams.get("auth_error");
+    const googleErrors: Record<string, string> = {
+      google_not_configured: "Google sign-in is not fully configured. Please contact the administrator.",
+      google_unavailable: "Google sign-in could not start. Please try again.",
+      google_domain_mismatch: "Google sign-in was started on a different domain. Use the canonical site address or align BUILDER_PUBLIC_URL with the authorized Google callback URL.",
+      google_cancelled: "Google sign-in was cancelled. You can try again or use email.",
+      google_invalid: "This Google sign-in link expired or could not be verified. Please try again.",
+      google_failed: "Google could not verify your account. Please try again.",
+      google_configuration_error: "Google OAuth rejected this app configuration. Confirm the client ID, client secret, and exact callback URL in Google Cloud Console and Vercel.",
+      google_unverified: "Google did not confirm this email address. Verify it with Google and try again.",
+      google_account_conflict: "This Google account could not be linked to the existing account. Contact support.",
+      database_not_configured: "Account storage is not configured. Please contact the administrator.",
+      database_unavailable: "The account database is temporarily unreachable. Please try again shortly.",
+      service_unavailable: "Account service is temporarily unavailable. Please try again shortly.",
+    };
+    if (googleError) {
+      setAuthError(googleErrors[googleError] ?? "Google sign-in could not be completed. Please try again.");
+      pageUrl.searchParams.delete("auth_error");
+      window.history.replaceState({}, "", `${pageUrl.pathname}${pageUrl.search}${pageUrl.hash}`);
+    }
     const verification = verificationToken
       ? fetch(`/api/auth?verify=${encodeURIComponent(verificationToken)}`, {
           cache: "no-store",
@@ -658,6 +679,18 @@ export default function Builder() {
               <h1 className="text-lg font-semibold">{authMode === "login" ? "Sign in to Phollet Builder" : "Create your Phollet account"}</h1>
               <p className="mt-1 text-sm leading-6 text-slate-400">Email verification is required before account access and payment.</p>
             </div>
+            <a
+              href="/api/auth/google"
+              className="flex w-full items-center justify-center gap-3 rounded-lg border border-white/10 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400"
+            >
+              <svg aria-hidden="true" viewBox="0 0 48 48" className="size-[18px]">
+                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5Z" transform="translate(0 5)" />
+                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.9c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6C44.36 38.04 46.98 31.95 46.98 24.55Z" transform="translate(0 -1)" />
+                <path fill="#FBBC05" d="M10.53 28.59A14.4 14.4 0 0 1 9.75 24c0-1.59.27-3.13.76-4.59l-7.98-6.2A23.9 23.9 0 0 0 0 24c0 3.89.93 7.57 2.56 10.78l7.97-6.19Z" />
+                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.9-5.8l-7.73-6c-2.14 1.44-4.89 2.3-8.17 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48Z" transform="translate(0 -5)" />
+              </svg>
+              Continue with Google
+            </a>
             {authState === "checking" ? (
               <div className="flex items-center gap-2 text-sm text-slate-500">
                 <LoaderCircle size={15} className="animate-spin" />
@@ -665,6 +698,11 @@ export default function Builder() {
               </div>
             ) : (
               <>
+                <div className="flex items-center gap-3 text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                  <span className="h-px flex-1 bg-white/10" />
+                  or continue with email
+                  <span className="h-px flex-1 bg-white/10" />
+                </div>
                 <label className="block space-y-2 text-xs text-slate-300">
                   Email address
                   <input

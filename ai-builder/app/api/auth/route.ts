@@ -11,11 +11,17 @@ import {
 } from "@/lib/auth";
 import {
   DatabaseConfigurationError,
+  databaseErrorCode,
+  databaseFailureMessage,
   ensureBillingSchema,
   getActiveSubscription,
   getPool,
 } from "@/lib/database";
-import { MailConfigurationError, sendVerificationEmail } from "@/lib/mail";
+import {
+  MailConfigurationError,
+  MailDeliveryError,
+  sendVerificationEmail,
+} from "@/lib/mail";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { readJsonBody, RequestBodyTooLargeError } from "@/lib/request-body";
 import { checkRateLimit } from "@/lib/rate-limit";
@@ -42,23 +48,47 @@ function authResponse(body: object, status = 200, headers?: HeadersInit) {
   return Response.json(body, { status, headers: responseHeaders });
 }
 
-async function rateLimit(request: Request, kind: string, limit: number, duration: number) {
+function rateLimit(request: Request, kind: "register" | "login", email: string) {
   const config = getAuthConfig();
-  if (!config) return false;
-  const result = checkRateLimit(
-    rateLimitKey(config.secret, kind, opaqueRequestIdentity(request)),
-    limit,
-    duration,
-  );
-  if (!result.allowed) return false;
-  return true;
+  if (!config) return { allowed: false, retryAfterSeconds: 60 };
+  const results =
+    kind === "register"
+      ? [
+          checkRateLimit(
+            rateLimitKey(config.secret, "register:ip", opaqueRequestIdentity(request)),
+            25,
+            15 * 60_000,
+          ),
+          checkRateLimit(
+            rateLimitKey(config.secret, "register:email", email),
+            5,
+            15 * 60_000,
+          ),
+        ]
+      : [
+          checkRateLimit(
+            rateLimitKey(config.secret, "login:ip", opaqueRequestIdentity(request)),
+            60,
+            15 * 60_000,
+          ),
+          checkRateLimit(
+            rateLimitKey(config.secret, "login:email", email),
+            12,
+            15 * 60_000,
+          ),
+        ];
+  const blocked = results.filter((result) => !result.allowed);
+  return {
+    allowed: blocked.length === 0,
+    retryAfterSeconds: Math.max(1, ...blocked.map((result) => result.retryAfterSeconds)),
+  };
 }
 
 export async function GET(request: Request) {
   try {
-    await ensureBillingSchema();
     const verifyToken = new URL(request.url).searchParams.get("verify");
     if (verifyToken) {
+      await ensureBillingSchema();
       if (!/^[A-Za-z0-9_-]{43}$/.test(verifyToken)) {
         return authResponse({ error: "This verification link is invalid or expired." }, 400);
       }
@@ -79,6 +109,7 @@ export async function GET(request: Request) {
 
     const userId = getSessionUserId(request);
     if (!userId) return authResponse({ authenticated: false });
+    await ensureBillingSchema();
     const result = await getPool().query<{
       email: string;
       plan_id: string | null;
@@ -103,6 +134,13 @@ export async function GET(request: Request) {
   } catch (error) {
     if (error instanceof DatabaseConfigurationError) {
       return authResponse({ error: "Account storage is not configured." }, 503);
+    }
+    const databaseMessage = databaseFailureMessage(error);
+    if (databaseMessage) {
+      console.error("Account status request could not reach PostgreSQL.", {
+        errorCode: databaseErrorCode(error),
+      });
+      return authResponse({ error: databaseMessage }, 503);
     }
     console.error("Account status request failed.", {
       errorName: error instanceof Error ? error.name : "UnknownError",
@@ -129,13 +167,23 @@ export async function POST(request: Request) {
   if (!parsed.success) return authResponse({ error: "Enter a valid email and password." }, 400);
 
   const { action, password } = parsed.data;
-  if (!(await rateLimit(request, action === "register" ? "register" : "login", action === "register" ? 3 : 10, 15 * 60_000))) {
-    return authResponse({ error: "Too many account attempts. Try again later." }, 429);
+  const email = parsed.data.email.toLowerCase();
+  const attemptLimit = rateLimit(request, action, email);
+  if (!attemptLimit.allowed) {
+    const waitMinutes = Math.max(1, Math.ceil(attemptLimit.retryAfterSeconds / 60));
+    const actionText = action === "register" ? "sign-up" : "sign-in";
+    return authResponse(
+      {
+        error: `Too many ${actionText} attempts. Please wait about ${waitMinutes} minute${waitMinutes === 1 ? "" : "s"} and try again.`,
+        retryAfterSeconds: attemptLimit.retryAfterSeconds,
+      },
+      429,
+      { "Retry-After": String(attemptLimit.retryAfterSeconds) },
+    );
   }
 
   try {
     await ensureBillingSchema();
-    const email = parsed.data.email.toLowerCase();
     if (action === "register") {
       const token = randomBytes(32).toString("base64url");
       const tokenHash = createHash("sha256").update(token).digest("hex");
@@ -159,12 +207,19 @@ export async function POST(request: Request) {
       }, 202);
     }
 
-    const result = await getPool().query<{ id: string; password_hash: string; verified_at: Date | null }>(
+    const result = await getPool().query<{ id: string; password_hash: string | null; verified_at: Date | null }>(
       "SELECT id, password_hash, verified_at FROM builder_users WHERE email = $1",
       [email],
     );
     const user = result.rows[0];
-    const validPassword = user
+    if (user && !user.password_hash) {
+      await verifyPassword(password, "scrypt$00000000000000000000000000000000$" + "0".repeat(128));
+      return authResponse(
+        { error: "The email or password is incorrect. If you created this account with Google, continue with Google." },
+        401,
+      );
+    }
+    const validPassword = user?.password_hash
       ? await verifyPassword(password, user.password_hash)
       : await verifyPassword(password, "scrypt$00000000000000000000000000000000$" + "0".repeat(128));
     if (!user || !validPassword) return authResponse({ error: "The email or password is incorrect." }, 401);
@@ -187,8 +242,23 @@ export async function POST(request: Request) {
     if (error instanceof DatabaseConfigurationError) {
       return authResponse({ error: "Account storage is not configured." }, 503);
     }
+    const databaseMessage = databaseFailureMessage(error);
+    if (databaseMessage) {
+      console.error("Account request could not reach PostgreSQL.", {
+        action,
+        errorCode: databaseErrorCode(error),
+      });
+      return authResponse({ error: databaseMessage }, 503);
+    }
     if (error instanceof MailConfigurationError) {
       return authResponse({ error: "Email verification is not configured. Contact the administrator." }, 503);
+    }
+    if (error instanceof MailDeliveryError) {
+      console.error("Account verification email could not be delivered.");
+      return authResponse(
+        { error: "We could not send the verification email. Your account details are saved; please try again shortly." },
+        502,
+      );
     }
     console.error("Account request failed.", {
       action,

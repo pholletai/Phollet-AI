@@ -7,6 +7,13 @@ export class MailConfigurationError extends Error {
   }
 }
 
+export class MailDeliveryError extends Error {
+  constructor() {
+    super("Verification email delivery failed.");
+    this.name = "MailDeliveryError";
+  }
+}
+
 export async function sendVerificationEmail(email: string, token: string): Promise<void> {
   const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, EMAIL_FROM, BUILDER_PUBLIC_URL } = process.env;
   if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASSWORD || !EMAIL_FROM || !BUILDER_PUBLIC_URL) {
@@ -31,10 +38,14 @@ export async function sendVerificationEmail(email: string, token: string): Promi
     socketTimeout: 15_000,
   });
 
-  await transporter.sendMail({
-    from: EMAIL_FROM,
-    to: email,
-    subject: "Verify your Phollet AI account",
-    text: `Verify your email address by opening this link. It expires in 30 minutes.\n\n${verificationUrl.toString()}\n\nIf you did not create a Phollet AI account, you can ignore this message.`,
-  });
+  try {
+    await transporter.sendMail({
+      from: EMAIL_FROM,
+      to: email,
+      subject: "Verify your Phollet AI account",
+      text: `Verify your email address by opening this link. It expires in 30 minutes.\n\n${verificationUrl.toString()}\n\nIf you did not create a Phollet AI account, you can ignore this message.`,
+    });
+  } catch {
+    throw new MailDeliveryError();
+  }
 }
