@@ -1,0 +1,14 @@
+.git
+.env
+.env.*
+!.env.example
+node_modules/
+build/
+dist/
+web-build/
+.expo/
+.vs/
+*.exe
+*.zip
+*.log
+coverage/
