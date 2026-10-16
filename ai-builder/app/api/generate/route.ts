@@ -93,8 +93,8 @@ type JsonChatCompletion = {
 
 function getAssistantText(content: Anthropic.Messages.Message["content"]): string {
   return content
-    .filter((block): block is Anthropic.Messages.TextBlock => block.type === "text")
-    .map((block) => block.text)
+   .filter((block): block is Anthropic.Messages.TextBlock => block.type === "text")
+.map((block: Anthropic.Messages.TextBlock) => block.text)
     .join("\n")
     .trim();
 }
@@ -353,20 +353,20 @@ export async function POST(request: Request) {
   if (!userId) {
     return jsonResponse({ error: "Sign in to use the Builder." }, 401);
   }
-  try {
-    await ensureBillingSchema();
-    if (!(await getActiveSubscription(userId))) {
-      return jsonResponse({ error: "An active Phollet AI Pro plan is required to generate projects." }, 402);
-    }
-  } catch (error) {
-    if (error instanceof DatabaseConfigurationError) {
-      return jsonResponse({ error: "Account and subscription storage is not configured." }, 503);
-    }
-    console.error("Builder subscription check failed.", {
-      errorName: error instanceof Error ? error.name : "UnknownError",
-    });
-    return jsonResponse({ error: "Subscription service is temporarily unavailable." }, 503);
+  let hasSubscription = false;
+try {
+  await ensureBillingSchema();
+  hasSubscription = Boolean(await getActiveSubscription(userId));
+} catch (error) {
+  if (error instanceof DatabaseConfigurationError) {
+    return jsonResponse({ error: "Account and subscription storage is not configured." }, 503);
   }
+  console.error("Builder subscription check failed.", {
+    errorName: error instanceof Error ? error.name : "UnknownError",
+  });
+  return jsonResponse({ error: "Subscription service is temporarily unavailable." }, 503);
+}
+
   if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
     return jsonResponse({ error: "Content-Type must be application/json." }, 415);
   }
@@ -415,6 +415,17 @@ export async function POST(request: Request) {
   const canGenerateFiles =
     previousAssistantMessage?.kind === "files" ||
     (previousAssistantMessage?.kind === "proposal" && approval);
+
+    if (canGenerateFiles && !hasSubscription) {
+  return jsonResponse(
+    {
+      error: "Upgrade to Phollet AI Pro to generate the full project code.",
+      code: "subscription_required",
+    },
+    402,
+  );
+}
+
   const providerMessages: ProviderMessage[] = conversation.map(({ role, content }, index) => ({
     role,
     content,
