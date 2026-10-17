@@ -1,5 +1,19 @@
+import { randomUUID } from "node:crypto";
 import { Pool, type PoolClient } from "pg";
-import type { PlanId } from "@/lib/payments/plans";
+import { FREE_TRIAL_PROJECT_LIMIT, type PlanId } from "@/lib/payments/plans";
+
+export type BuilderProject = {
+  id: string;
+  is_trial: boolean;
+  files: Array<{ path: string; content: string }>;
+  dependencies: Record<string, string>;
+};
+
+export type BuilderProjectSummary = {
+  id: string;
+  isTrial: boolean;
+  updatedAt: string;
+};
 
 let pool: Pool | undefined;
 let schemaInitialization: Promise<void> | undefined;
@@ -8,6 +22,27 @@ export class DatabaseConfigurationError extends Error {
   constructor() {
     super("PostgreSQL is not configured.");
     this.name = "DatabaseConfigurationError";
+  }
+}
+
+export class FreeTrialLimitError extends Error {
+  constructor() {
+    super("The free project limit has been reached.");
+    this.name = "FreeTrialLimitError";
+  }
+}
+
+export class BuilderProjectNotFoundError extends Error {
+  constructor() {
+    super("The Builder project was not found.");
+    this.name = "BuilderProjectNotFoundError";
+  }
+}
+
+export class ProAccessRequiredError extends Error {
+  constructor() {
+    super("An active Pro plan is required for this project.");
+    this.name = "ProAccessRequiredError";
   }
 }
 
@@ -78,6 +113,7 @@ export async function ensureBillingSchema(): Promise<void> {
           email TEXT NOT NULL UNIQUE,
           password_hash TEXT,
           google_sub TEXT,
+          trial_project_count INTEGER NOT NULL DEFAULT 0 CHECK (trial_project_count >= 0),
           verified_at TIMESTAMPTZ,
           verification_token_hash TEXT,
           verification_expires_at TIMESTAMPTZ,
@@ -112,12 +148,26 @@ export async function ensureBillingSchema(): Promise<void> {
           last_order_id UUID NOT NULL REFERENCES builder_orders(id),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
+        CREATE TABLE IF NOT EXISTS builder_projects (
+          id UUID PRIMARY KEY,
+          user_id UUID NOT NULL REFERENCES builder_users(id) ON DELETE CASCADE,
+          is_trial BOOLEAN NOT NULL,
+          files JSONB NOT NULL,
+          dependencies JSONB NOT NULL DEFAULT '{}'::jsonb,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+        CREATE INDEX IF NOT EXISTS builder_projects_user_updated_idx
+          ON builder_projects (user_id, updated_at DESC);
       `);
       await getPool().query(
         "ALTER TABLE builder_users ALTER COLUMN password_hash DROP NOT NULL",
       );
       await getPool().query(
         "ALTER TABLE builder_users ADD COLUMN IF NOT EXISTS google_sub TEXT",
+      );
+      await getPool().query(
+        "ALTER TABLE builder_users ADD COLUMN IF NOT EXISTS trial_project_count INTEGER NOT NULL DEFAULT 0 CHECK (trial_project_count >= 0)",
       );
       await getPool().query(
         `CREATE UNIQUE INDEX IF NOT EXISTS builder_users_google_sub_idx
@@ -165,6 +215,133 @@ export async function getActiveSubscription(userId: string) {
     [userId],
   );
   return result.rows[0] ?? null;
+}
+
+export async function getBuilderAccess(userId: string) {
+  const result = await getPool().query<{
+    email: string;
+    plan_id: PlanId | null;
+    current_period_end: Date | null;
+    trial_project_count: number;
+    recent_project_id: string | null;
+  }>(
+    `SELECT u.email,
+            s.plan_id,
+            s.current_period_end,
+            u.trial_project_count,
+            p.id AS recent_project_id
+     FROM builder_users u
+     LEFT JOIN builder_subscriptions s
+       ON s.user_id = u.id AND s.status = 'active' AND s.current_period_end > NOW()
+     LEFT JOIN LATERAL (
+       SELECT id FROM builder_projects
+       WHERE user_id = u.id
+       ORDER BY updated_at DESC
+       LIMIT 1
+     ) p ON TRUE
+     WHERE u.id = $1 AND u.verified_at IS NOT NULL`,
+    [userId],
+  );
+  const user = result.rows[0];
+  if (!user) return null;
+  return {
+    email: user.email,
+    subscription: user.plan_id
+      ? { planId: user.plan_id, currentPeriodEnd: user.current_period_end?.toISOString() ?? null }
+      : null,
+    trialProjectCount: user.trial_project_count,
+    trialProjectLimit: FREE_TRIAL_PROJECT_LIMIT,
+    recentProjectId: user.recent_project_id,
+  };
+}
+
+export async function getBuilderProject(userId: string, projectId: string): Promise<BuilderProject | null> {
+  const result = await getPool().query<BuilderProject>(
+    `SELECT id, is_trial, files, dependencies
+     FROM builder_projects
+     WHERE id = $1 AND user_id = $2`,
+    [projectId, userId],
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function getBuilderProjects(userId: string): Promise<BuilderProjectSummary[]> {
+  const result = await getPool().query<{ id: string; is_trial: boolean; updated_at: Date }>(
+    `SELECT id, is_trial, updated_at
+     FROM builder_projects
+     WHERE user_id = $1
+     ORDER BY updated_at DESC
+     LIMIT 50`,
+    [userId],
+  );
+  return result.rows.map((project) => ({
+    id: project.id,
+    isTrial: project.is_trial,
+    updatedAt: project.updated_at.toISOString(),
+  }));
+}
+
+export async function saveBuilderProject(
+  userId: string,
+  projectId: string | undefined,
+  files: BuilderProject["files"],
+  dependencies: BuilderProject["dependencies"],
+): Promise<BuilderProject> {
+  return withTransaction(async (client) => {
+    if (projectId) {
+      const existing = await client.query<{ id: string; is_trial: boolean }>(
+        "SELECT id, is_trial FROM builder_projects WHERE id = $1 AND user_id = $2 FOR UPDATE",
+        [projectId, userId],
+      );
+      if (!existing.rows[0]) throw new BuilderProjectNotFoundError();
+      const activeSubscription = await client.query(
+        `SELECT 1 FROM builder_subscriptions
+         WHERE user_id = $1 AND status = 'active' AND current_period_end > NOW()`,
+        [userId],
+      );
+      if (activeSubscription.rowCount === 0 && !existing.rows[0].is_trial) {
+        throw new ProAccessRequiredError();
+      }
+      const updated = await client.query<BuilderProject>(
+        `UPDATE builder_projects
+         SET files = $1, dependencies = $2, updated_at = NOW()
+         WHERE id = $3 AND user_id = $4
+         RETURNING id, is_trial, files, dependencies`,
+        [JSON.stringify(files), JSON.stringify(dependencies), projectId, userId],
+      );
+      return updated.rows[0];
+    }
+
+    const user = await client.query<{ id: string; trial_project_count: number }>(
+      "SELECT id, trial_project_count FROM builder_users WHERE id = $1 FOR UPDATE",
+      [userId],
+    );
+    if (!user.rows[0]) throw new BuilderProjectNotFoundError();
+
+    const activeSubscription = await client.query(
+      `SELECT 1 FROM builder_subscriptions
+       WHERE user_id = $1 AND status = 'active' AND current_period_end > NOW()`,
+      [userId],
+    );
+    const isTrial = activeSubscription.rowCount === 0;
+    if (isTrial) {
+      const claimed = await client.query(
+        `UPDATE builder_users
+         SET trial_project_count = trial_project_count + 1
+         WHERE id = $1 AND trial_project_count < $2`,
+        [userId, FREE_TRIAL_PROJECT_LIMIT],
+      );
+      if (claimed.rowCount !== 1) throw new FreeTrialLimitError();
+    }
+
+    const created = await client.query<BuilderProject>(
+      `INSERT INTO builder_projects (id, user_id, is_trial, files, dependencies)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, is_trial, files, dependencies`,
+      [randomUUID(), userId, isTrial, JSON.stringify(files), JSON.stringify(dependencies)],
+    );
+    return created.rows[0];
+  });
 }
 
 export async function activateSubscription(

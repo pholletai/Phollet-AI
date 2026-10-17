@@ -2,15 +2,17 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft, Check, CreditCard, Sparkles } from "lucide-react";
 import PricingCheckout from "@/components/pricing-checkout";
+import { FREE_TRIAL_PROJECT_LIMIT } from "@/lib/payments/plans";
 
 export const metadata: Metadata = {
-  title: "Phollet AI Pro Pricing",
-  description: "Planned Phollet AI Pro plan pricing and billing disclosures.",
+  title: "Phollet AI Pricing",
+  description: "Free Builder trial and Phollet AI Pro pricing.",
 };
 
 const features = [
-  "AI-assisted React and TypeScript project generation",
-  "Editable source code with a live browser preview",
+  "Create multiple projects while the plan is active",
+  "Editable React and TypeScript source",
+  "Server-checked project JSON export",
   "Image prompts, subject to configured provider support",
   "Voice input where supported by the browser",
 ];
@@ -32,44 +34,62 @@ export default function PricingPage() {
             <Sparkles size={21} />
           </div>
           <p className="mt-5 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-300">
-            Simple, planned pricing
+            Free trial · prepaid Pro
           </p>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
             Phollet AI Pro
           </h1>
           <p className="mt-3 text-sm leading-6 text-slate-400 sm:text-base">
-            Pricing for Phollet AI Builder. ABA KHQR checkout is available when the account and merchant configuration are active.
+            Try one project for free, then choose a prepaid Pro term when you need more projects or project export.
           </p>
         </header>
 
-        <section aria-label="Pro plan prices" className="mx-auto mt-9 grid max-w-3xl gap-4 md:grid-cols-2">
+        <section aria-label="Builder plan prices" className="mx-auto mt-9 grid max-w-5xl gap-4 md:grid-cols-3">
           <article className="rounded-2xl border border-white/10 bg-[#101419] p-5 sm:p-6">
-            <h2 className="text-sm font-semibold text-slate-200">Monthly</h2>
+            <h2 className="text-sm font-semibold text-slate-200">Starter</h2>
+            <p className="mt-4 flex items-baseline gap-2">
+              <span className="text-4xl font-semibold tracking-tight">$0</span>
+              <span className="text-sm text-slate-500">/ month</span>
+            </p>
+            <p className="mt-2 text-xs leading-5 text-slate-500">No payment details required to start.</p>
+            <ul className="mt-5 space-y-3 text-xs leading-5 text-slate-300">
+              <li className="flex gap-2"><Check size={15} className="mt-0.5 shrink-0 text-emerald-300" />{FREE_TRIAL_PROJECT_LIMIT} generated project</li>
+              <li className="flex gap-2"><Check size={15} className="mt-0.5 shrink-0 text-emerald-300" />Edit files and preview in the browser</li>
+            </ul>
+            <Link
+              href="/"
+              className="mt-6 inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-white/10 px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.06]"
+            >
+              Start for free
+            </Link>
+          </article>
+          <article className="rounded-2xl border border-white/10 bg-[#101419] p-5 sm:p-6">
+            <h2 className="text-sm font-semibold text-slate-200">Pro monthly</h2>
             <p className="mt-4 flex items-baseline gap-2">
               <span className="text-4xl font-semibold tracking-tight">$14.99</span>
               <span className="text-sm text-slate-500">/ month</span>
             </p>
-            <p className="mt-2 text-xs leading-5 text-slate-500">Planned monthly price, billed in USD.</p>
+            <p className="mt-2 text-xs leading-5 text-slate-500">Prepaid term · no automatic renewal.</p>
           </article>
           <article className="rounded-2xl border border-emerald-300/30 bg-emerald-300/[0.06] p-5 sm:p-6">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-sm font-semibold text-slate-200">Annual</h2>
+              <h2 className="text-sm font-semibold text-slate-200">Pro annual</h2>
               <span className="rounded-full border border-emerald-300/20 px-2.5 py-1 text-[10px] font-medium text-emerald-200">
-                Planned annual plan
+                Prepaid year
               </span>
             </div>
             <p className="mt-4 flex items-baseline gap-2">
               <span className="text-4xl font-semibold tracking-tight">$129.99</span>
               <span className="text-sm text-slate-500">/ year</span>
             </p>
-            <p className="mt-2 text-xs leading-5 text-slate-500">Planned annual price, billed in USD.</p>
+            <p className="mt-2 text-xs leading-5 text-slate-500">Prepaid term · no automatic renewal.</p>
           </article>
         </section>
 
         <PricingCheckout />
 
         <section className="mx-auto mt-4 max-w-3xl rounded-2xl border border-white/10 bg-[#101419] p-5 sm:p-6">
-          <h2 className="text-sm font-semibold text-slate-100">Planned Pro features</h2>
+          <h2 className="text-sm font-semibold text-slate-100">Pro features</h2>
           <ul className="mt-4 grid gap-3 text-sm text-slate-300 sm:grid-cols-2">
             {features.map((feature) => (
               <li key={feature} className="flex items-start gap-2.5 leading-5">
@@ -78,6 +98,9 @@ export default function PricingPage() {
               </li>
             ))}
           </ul>
+          <p className="mt-4 border-t border-white/[0.07] pt-3 text-xs leading-5 text-slate-500">
+            Website publishing and hosted deployment are not currently available.
+          </p>
         </section>
 
         <section
@@ -112,7 +135,7 @@ export default function PricingPage() {
         </section>
 
         <footer className="mx-auto mt-6 max-w-3xl text-center text-[11px] leading-5 text-slate-600">
-          Plan inclusions and provider availability may change before the paid service launches.
+          Pro access is activated after ABA PayWay verifies the payment. Pricing is in USD; supported bank conversion or fees may apply.
         </footer>
       </div>
     </main>

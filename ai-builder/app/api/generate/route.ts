@@ -8,14 +8,27 @@ import {
   getSessionUserId,
   sessionIdentity,
 } from "@/lib/auth";
-import { DatabaseConfigurationError, ensureBillingSchema, getActiveSubscription } from "@/lib/database";
+import {
+  BuilderProjectNotFoundError,
+  DatabaseConfigurationError,
+  FreeTrialLimitError,
+  ProAccessRequiredError,
+  databaseErrorCode,
+  databaseFailureMessage,
+  ensureBillingSchema,
+  getBuilderAccess,
+  getBuilderProject,
+  saveBuilderProject,
+} from "@/lib/database";
 import { readJsonBody, RequestBodyTooLargeError } from "@/lib/request-body";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { FREE_TRIAL_PROJECT_LIMIT } from "@/lib/payments/plans";
 
 export const runtime = "nodejs";
 export const maxDuration = 90;
 
 const RequestSchema = z.object({
+  projectId: z.string().uuid().optional(),
   messages: z
     .array(
       z.object({
@@ -353,6 +366,7 @@ export async function POST(request: Request) {
   if (!userId) {
     return jsonResponse({ error: "Sign in to use the Builder." }, 401);
   }
+<<<<<<< HEAD
   let hasSubscription = false;
 try {
   await ensureBillingSchema();
@@ -367,6 +381,8 @@ try {
   return jsonResponse({ error: "Subscription service is temporarily unavailable." }, 503);
 }
 
+=======
+>>>>>>> ef2224e (Ready for production deploy)
   if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
     return jsonResponse({ error: "Content-Type must be application/json." }, 415);
   }
@@ -415,6 +431,7 @@ try {
   const canGenerateFiles =
     previousAssistantMessage?.kind === "files" ||
     (previousAssistantMessage?.kind === "proposal" && approval);
+<<<<<<< HEAD
 
     if (canGenerateFiles && !hasSubscription) {
   return jsonResponse(
@@ -426,11 +443,64 @@ try {
   );
 }
 
+=======
+  const projectId = parsedRequest.data.projectId;
+  let currentProject = null;
+  try {
+    await ensureBillingSchema();
+    if (projectId) {
+      currentProject = await getBuilderProject(userId, projectId);
+      if (!currentProject) {
+        return jsonResponse({ error: "This project was not found." }, 404);
+      }
+    } else if (canGenerateFiles) {
+      const access = await getBuilderAccess(userId);
+      if (!access) return jsonResponse({ error: "Sign in to use the Builder." }, 401);
+      if (!access.subscription && access.trialProjectCount >= FREE_TRIAL_PROJECT_LIMIT) {
+        return jsonResponse(
+          { error: "Your free project is ready. Upgrade to Pro to start another project." },
+          402,
+        );
+      }
+    }
+    if (currentProject && canGenerateFiles && !currentProject.is_trial) {
+      const access = await getBuilderAccess(userId);
+      if (!access) return jsonResponse({ error: "Sign in to use the Builder." }, 401);
+      if (!access.subscription) {
+        return jsonResponse({ error: "An active Pro plan is required to continue this project." }, 402);
+      }
+    }
+  } catch (error) {
+    if (error instanceof DatabaseConfigurationError) {
+      return jsonResponse({ error: "Account and project storage is not configured." }, 503);
+    }
+    const message = databaseFailureMessage(error);
+    if (message) {
+      console.error("Builder project access could not reach PostgreSQL.", {
+        errorCode: databaseErrorCode(error),
+      });
+      return jsonResponse({ error: message }, 503);
+    }
+    console.error("Builder project access check failed.", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+    });
+    return jsonResponse({ error: "Builder access is temporarily unavailable." }, 503);
+  }
+>>>>>>> ef2224e (Ready for production deploy)
   const providerMessages: ProviderMessage[] = conversation.map(({ role, content }, index) => ({
     role,
     content,
     ...(index === conversation.length - 1 && images.length > 0 ? { images } : {}),
   }));
+  if (currentProject && canGenerateFiles) {
+    providerMessages.splice(providerMessages.length - 1, 0, {
+      role: "assistant",
+      content: `Current saved project files:\n${JSON.stringify({
+        files: currentProject.files,
+        dependencies: currentProject.dependencies,
+      })}`,
+    });
+  }
 
   const provider =
     process.env.AI_PROVIDER?.trim().toLowerCase() ||
@@ -490,8 +560,39 @@ try {
           : "Please review the proposal above and reply “OK” to generate the code.";
       return jsonResponse({ status: "proposal", message: languagePrompt });
     }
+    if (result.status === "files") {
+      const savedProject = await saveBuilderProject(
+        userId,
+        projectId,
+        result.files,
+        result.dependencies,
+      );
+      return jsonResponse({ ...result, projectId: savedProject.id });
+    }
     return jsonResponse(result);
   } catch (error) {
+    if (error instanceof FreeTrialLimitError) {
+      return jsonResponse(
+        { error: "Your free project is ready. Upgrade to Pro to start another project." },
+        402,
+      );
+    }
+    if (error instanceof BuilderProjectNotFoundError) {
+      return jsonResponse({ error: "This project was not found." }, 404);
+    }
+    if (error instanceof ProAccessRequiredError) {
+      return jsonResponse({ error: "An active Pro plan is required to continue this project." }, 402);
+    }
+    if (error instanceof DatabaseConfigurationError) {
+      return jsonResponse({ error: "Project storage is not configured." }, 503);
+    }
+    const databaseMessage = databaseFailureMessage(error);
+    if (databaseMessage) {
+      console.error("Generated project could not be saved to PostgreSQL.", {
+        errorCode: databaseErrorCode(error),
+      });
+      return jsonResponse({ error: databaseMessage }, 503);
+    }
     const errorName = error instanceof Error ? error.name : "UnknownError";
     const providerStatus = error instanceof ProviderHttpError
       ? error.status

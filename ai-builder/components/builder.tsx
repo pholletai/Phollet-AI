@@ -20,7 +20,6 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
-  Trash2,
   WandSparkles,
   X,
 } from "lucide-react";
@@ -38,6 +37,7 @@ import {
   useState,
 } from "react";
 import Link from "next/link";
+import { FREE_TRIAL_PROJECT_LIMIT } from "@/lib/payments/plans";
 
 const Editor = dynamic(() => import("@monaco-editor/react"), {
   ssr: false,
@@ -51,6 +51,12 @@ const Editor = dynamic(() => import("@monaco-editor/react"), {
 type ProjectFile = {
   path: string;
   content: string;
+};
+
+type SavedProjectSummary = {
+  id: string;
+  isTrial: boolean;
+  updatedAt: string;
 };
 
 type ChatMessage = {
@@ -88,6 +94,7 @@ type ProviderResponse =
       message: string;
       files: ProjectFile[];
       dependencies?: Record<string, string>;
+      projectId: string;
     };
 
 type Panel = "chat" | "code" | "preview";
@@ -142,6 +149,55 @@ function codeLanguage(path: string) {
 
 function panelVisibility(panel: Panel, selected: Panel) {
   return `${panel === selected ? "flex" : "hidden"} min-h-0 flex-col md:flex`;
+}
+
+function isSavedProject(value: unknown): value is {
+  id: string;
+  files: ProjectFile[];
+  dependencies: Record<string, string>;
+} {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "id" in value &&
+    typeof value.id === "string" &&
+    "files" in value &&
+    Array.isArray(value.files) &&
+    value.files.every(
+      (file) =>
+        typeof file === "object" &&
+        file !== null &&
+        "path" in file &&
+        typeof file.path === "string" &&
+        "content" in file &&
+        typeof file.content === "string",
+    ) &&
+    "dependencies" in value &&
+    typeof value.dependencies === "object" &&
+    value.dependencies !== null &&
+    !Array.isArray(value.dependencies) &&
+    Object.values(value.dependencies).every((dependency) => typeof dependency === "string")
+  );
+}
+
+function isSavedProjectList(value: unknown): value is { projects: SavedProjectSummary[] } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "projects" in value &&
+    Array.isArray(value.projects) &&
+    value.projects.every(
+      (project) =>
+        typeof project === "object" &&
+        project !== null &&
+        "id" in project &&
+        typeof project.id === "string" &&
+        "isTrial" in project &&
+        typeof project.isTrial === "boolean" &&
+        "updatedAt" in project &&
+        typeof project.updatedAt === "string",
+    )
+  );
 }
 
 async function normalizeImage(file: File): Promise<ImageAttachment> {
@@ -204,12 +260,18 @@ export default function Builder() {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [paywallOpen, setPaywallOpen] = useState(false);
   const [mobilePanel, setMobilePanel] = useState<Panel>("chat");
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [processingImages, setProcessingImages] = useState(false);
   const [listening, setListening] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [authState, setAuthState] = useState<"checking" | "signedOut" | "signedIn" | "needsPro">("checking");
+  const [authState, setAuthState] = useState<"checking" | "signedOut" | "signedIn">("checking");
+  const [isPro, setIsPro] = useState(false);
+  const [trialProjectCount, setTrialProjectCount] = useState(0);
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [savedProjects, setSavedProjects] = useState<SavedProjectSummary[]>([]);
+  const [landingPrompt, setLandingPrompt] = useState("");
   const [authError, setAuthError] = useState("");
   const [authNotice, setAuthNotice] = useState("");
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
@@ -218,6 +280,7 @@ export default function Builder() {
   const [authBusy, setAuthBusy] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const accountSectionRef = useRef<HTMLElement>(null);
   const settingsDialogRef = useRef<HTMLElement>(null);
   const settingsCloseRef = useRef<HTMLButtonElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
@@ -227,6 +290,15 @@ export default function Builder() {
 
   useEffect(() => {
     const controller = new AbortController();
+    try {
+      const savedPrompt = window.sessionStorage.getItem("phollet-builder-onboarding-prompt");
+      if (savedPrompt) {
+        setDraft(savedPrompt);
+        setLandingPrompt(savedPrompt);
+      }
+    } catch {
+      // Browser storage can be unavailable in private or restricted contexts.
+    }
     const pageUrl = new URL(window.location.href);
     const verificationToken = pageUrl.searchParams.get("verify");
     const googleError = pageUrl.searchParams.get("auth_error");
@@ -288,11 +360,60 @@ export default function Builder() {
               : "Account service is unavailable.";
           throw new Error(message);
         }
-        const result = await response.json();
+        const result: unknown = await response.json();
         if (typeof result !== "object" || result === null || !("authenticated" in result) || result.authenticated !== true) {
           return "signedOut" as const;
         }
-        return "subscription" in result && result.subscription ? "signedIn" as const : "needsPro" as const;
+        if ("email" in result && typeof result.email === "string") setAuthEmail(result.email);
+        const subscription = "subscription" in result ? result.subscription : null;
+        setIsPro(Boolean(subscription));
+        if ("trialProjectCount" in result && typeof result.trialProjectCount === "number") {
+          setTrialProjectCount(result.trialProjectCount);
+        }
+        const recentProjectId =
+          "recentProjectId" in result && typeof result.recentProjectId === "string"
+            ? result.recentProjectId
+            : null;
+        const projectsResponse = await fetch("/api/projects", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const projectsBody = await projectsResponse.text();
+        let projectsData: unknown;
+        try {
+          projectsData = projectsBody ? JSON.parse(projectsBody) : null;
+        } catch {
+          throw new Error("The saved projects service returned an invalid response.");
+        }
+        if (!projectsResponse.ok || !isSavedProjectList(projectsData)) {
+          throw new Error("Could not load your saved projects. Please reload and try again.");
+        }
+        setSavedProjects(projectsData.projects);
+        if (recentProjectId) {
+          const projectResponse = await fetch(`/api/projects?id=${encodeURIComponent(recentProjectId)}`, {
+            cache: "no-store",
+            signal: controller.signal,
+          });
+          const projectBody = await projectResponse.text();
+          let projectData: unknown;
+          try {
+            projectData = projectBody ? JSON.parse(projectBody) : null;
+          } catch {
+            throw new Error("The saved project service returned an invalid response.");
+          }
+          if (!projectResponse.ok || !isSavedProject(projectData)) {
+            throw new Error("Could not restore your saved project. Please reload and try again.");
+          }
+          setFiles(projectData.files);
+          setDependencies(projectData.dependencies);
+          setActivePath(projectData.files[0]?.path ?? starterFiles[0].path);
+          setCurrentProjectId(projectData.id);
+          setMessages((current) => [
+            current[0],
+            { role: "assistant", content: "Your most recent saved project has been restored.", kind: "files" },
+          ]);
+        }
+        return "signedIn" as const;
       })
       .then((nextState) => setAuthState(nextState))
       .catch((cause: unknown) => {
@@ -303,6 +424,15 @@ export default function Builder() {
     return () => controller.abort();
   }, []);
 
+  useEffect(() => {
+    if (authState !== "signedIn") return;
+    try {
+      window.sessionStorage.removeItem("phollet-builder-onboarding-prompt");
+    } catch {
+      // Storage cleanup is best effort; it contains no authentication credentials.
+    }
+  }, [authState]);
+
   useEffect(
     () => () => {
       for (const url of imageUrlsRef.current) URL.revokeObjectURL(url);
@@ -310,6 +440,46 @@ export default function Builder() {
     },
     [],
   );
+
+  useEffect(() => {
+    if (authState !== "signedIn" || !currentProjectId) return;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const response = await fetch("/api/projects", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ projectId: currentProjectId, files, dependencies }),
+            cache: "no-store",
+            signal: controller.signal,
+          });
+          const body = await response.text();
+          let result: unknown;
+          try {
+            result = body ? JSON.parse(body) : null;
+          } catch {
+            throw new Error("The project save service returned an invalid response.");
+          }
+          if (!response.ok) {
+            const message =
+              typeof result === "object" && result !== null && "error" in result && typeof result.error === "string"
+                ? result.error
+                : `Could not save project changes (HTTP ${response.status}).`;
+            if (response.status === 402) setPaywallOpen(true);
+            throw new Error(message);
+          }
+        } catch (cause) {
+          if (controller.signal.aborted) return;
+          setError(cause instanceof Error ? cause.message : "Could not save project changes.");
+        }
+      })();
+    }, 1500);
+    return () => {
+      window.clearTimeout(timeout);
+      controller.abort();
+    };
+  }, [authState, currentProjectId, files, dependencies]);
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -431,9 +601,27 @@ export default function Builder() {
     setFiles(starterFiles);
     setDependencies({});
     setActivePath(starterFiles[0].path);
+    setCurrentProjectId(null);
     setMessages((current) => current.slice(0, 1));
     setError("");
+    setPaywallOpen(false);
     setSettingsOpen(false);
+  }
+
+  function startOnboarding(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const prompt = landingPrompt.trim();
+    if (prompt) {
+      setDraft(prompt);
+      try {
+        window.sessionStorage.setItem("phollet-builder-onboarding-prompt", prompt);
+      } catch {
+        // The prompt can still be used in this page when storage is unavailable.
+      }
+    }
+    setAuthMode("register");
+    setAuthNotice("");
+    accountSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   }
 
   async function submitLogin(event: FormEvent<HTMLFormElement>) {
@@ -473,13 +661,15 @@ export default function Builder() {
         setAuthPassword("");
         return;
       }
-      setAuthPassword("");
-      setAuthNotice("");
-      setAuthState(
-        typeof data === "object" && data !== null && "subscription" in data && data.subscription
-          ? "signedIn"
-          : "needsPro",
-      );
+      if (
+        typeof data !== "object" ||
+        data === null ||
+        !("authenticated" in data) ||
+        data.authenticated !== true
+      ) {
+        throw new Error("The account service did not start a secure session.");
+      }
+      window.location.assign("/");
     } catch (cause) {
       setAuthError(cause instanceof Error ? cause.message : "Could not continue.");
     } finally {
@@ -492,6 +682,8 @@ export default function Builder() {
       const response = await fetch("/api/auth", { method: "DELETE" });
       if (!response.ok) throw new Error("Could not securely end this session. Try again.");
       clearWorkspace();
+      setIsPro(false);
+      setTrialProjectCount(0);
       setAuthState("signedOut");
       setSettingsOpen(false);
     } catch (cause) {
@@ -571,6 +763,7 @@ export default function Builder() {
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
         body: JSON.stringify({
+          ...(currentProjectId ? { projectId: currentProjectId } : {}),
           messages: conversation.map(({ role, content, kind }) => ({ role, content, kind })),
           images: outgoingImages.map(({ mimeType, data }) => ({ mimeType, data })),
         }),
@@ -588,6 +781,7 @@ export default function Builder() {
           typeof data === "object" && data !== null && "error" in data && typeof data.error === "string"
             ? data.error
             : `Request failed with HTTP ${response.status}.`;
+        if (response.status === 402) setPaywallOpen(true);
         throw new Error(detail);
       }
       if (
@@ -611,8 +805,22 @@ export default function Builder() {
       ]);
 
       if (result.status === "files") {
+        if (!result.projectId) throw new Error("The saved project response did not include its project identifier.");
         setFiles(result.files);
         setDependencies(result.dependencies ?? {});
+        setCurrentProjectId(result.projectId);
+        setSavedProjects((current) => {
+          const existing = current.find((project) => project.id === result.projectId);
+          const summary: SavedProjectSummary = {
+            id: result.projectId,
+            isTrial: existing?.isTrial ?? (!isPro && !currentProjectId),
+            updatedAt: new Date().toISOString(),
+          };
+          return [summary, ...current.filter((project) => project.id !== result.projectId)];
+        });
+        if (!isPro && !currentProjectId) {
+          setTrialProjectCount((count) => Math.min(count + 1, FREE_TRIAL_PROJECT_LIMIT));
+        }
         setActivePath(result.files.some((file) => file.path === activePath) ? activePath : result.files[0].path);
         setMobilePanel("preview");
       }
@@ -635,127 +843,349 @@ export default function Builder() {
     void sendMessage();
   }
 
-  if (authState === "needsPro") {
-    return (
-      <main className="grid h-dvh place-items-center bg-[#0b0e12] px-5 text-slate-100">
-        <section className="w-full max-w-md space-y-4 rounded-2xl border border-white/10 bg-[#101419] p-6 text-center shadow-2xl">
-          <div className="mx-auto grid size-11 place-items-center rounded-xl bg-emerald-500/15 text-emerald-300">
-            <Sparkles size={21} />
-          </div>
-          <h1 className="text-lg font-semibold">Choose Phollet AI Pro</h1>
-          <p className="text-sm leading-6 text-slate-400">
-            Your verified account needs an active Pro plan to use project generation. Checkout is one payment per term and does not auto-renew.
-          </p>
-          <Link
-            href="/pricing"
-            className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-400"
-          >
-            View plans and pay with ABA KHQR
-          </Link>
-          <button
-            type="button"
-            onClick={() => void signOut()}
-            className="w-full rounded-lg px-3 py-2 text-xs text-slate-400 hover:bg-white/[0.06]"
-          >
-            Sign out
-          </button>
-        </section>
-      </main>
-    );
+  async function openSavedProject(projectId: string) {
+    try {
+      const response = await fetch(`/api/projects?id=${encodeURIComponent(projectId)}`, {
+        cache: "no-store",
+      });
+      const body = await response.text();
+      let data: unknown;
+      try {
+        data = body ? JSON.parse(body) : null;
+      } catch {
+        throw new Error("The saved project service returned an invalid response.");
+      }
+      if (!response.ok || !isSavedProject(data)) {
+        const message =
+          typeof data === "object" && data !== null && "error" in data && typeof data.error === "string"
+            ? data.error
+            : "Could not open this project.";
+        throw new Error(message);
+      }
+      requestControllerRef.current?.abort();
+      setFiles(data.files);
+      setDependencies(data.dependencies);
+      setActivePath(data.files[0]?.path ?? starterFiles[0].path);
+      setCurrentProjectId(data.id);
+      setMessages([
+        {
+          role: "assistant",
+          content: "Your saved project is open. Describe the changes you want to make.",
+          kind: "files",
+        },
+      ]);
+      setError("");
+      setPaywallOpen(false);
+      setMobilePanel("preview");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not open this project.");
+    }
+  }
+
+  async function exportProject() {
+    if (!currentProjectId) {
+      setError("Generate a project before exporting it.");
+      return;
+    }
+    setError("");
+    try {
+      const response = await fetch("/api/projects/export", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: currentProjectId, files, dependencies }),
+        cache: "no-store",
+      });
+      const body = await response.text();
+      if (!response.ok) {
+        let data: unknown;
+        try {
+          data = body ? JSON.parse(body) : null;
+        } catch {
+          throw new Error("The export service returned an invalid response.");
+        }
+        const message =
+          typeof data === "object" && data !== null && "error" in data && typeof data.error === "string"
+            ? data.error
+            : `Export failed with HTTP ${response.status}.`;
+        if (response.status === 402) setPaywallOpen(true);
+        throw new Error(message);
+      }
+      if (!body) throw new Error("The export service returned an empty project.");
+      const blob = new Blob([body], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = "phollet-project.json";
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not export this project.");
+    }
   }
 
   if (authState !== "signedIn") {
     return (
-      <main className="grid h-dvh place-items-center bg-[#0b0e12] px-5 text-slate-100">
-        <div className="flex w-full max-w-sm flex-col items-center gap-4">
-          <form
-            onSubmit={submitLogin}
-            className="w-full space-y-5 rounded-2xl border border-white/10 bg-[#101419] p-6 shadow-2xl"
-          >
-            <div className="grid size-11 place-items-center rounded-xl bg-emerald-500/15 text-emerald-300">
-              <ShieldCheck size={21} />
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold">{authMode === "login" ? "Sign in to Phollet Builder" : "Create your Phollet account"}</h1>
-              <p className="mt-1 text-sm leading-6 text-slate-400">Email verification is required before account access and payment.</p>
-            </div>
-            <a
-              href="/api/auth/google"
-              className="flex w-full items-center justify-center gap-3 rounded-lg border border-white/10 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400"
+      <main className="min-h-dvh overflow-y-auto bg-[#0b0e12] text-slate-100">
+        <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-white/[0.08] bg-[#0b0e12]/90 px-5 backdrop-blur sm:px-8">
+          <a href="#" className="flex items-center gap-2.5 font-semibold">
+            <span className="grid size-9 place-items-center rounded-xl bg-emerald-500/15 text-emerald-300">
+              <WandSparkles size={18} />
+            </span>
+            Phollet AI
+          </a>
+          <nav className="hidden items-center gap-7 text-sm text-slate-400 md:flex">
+            <a href="#features" className="hover:text-white">Features</a>
+            <a href="#plans" className="hover:text-white">Plans</a>
+            <a href="#account" className="hover:text-white">How it works</a>
+          </nav>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode("login");
+                accountSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+              }}
+              className="rounded-lg px-3 py-2 text-xs font-medium text-slate-300 hover:bg-white/[0.06] sm:text-sm"
             >
-              <svg aria-hidden="true" viewBox="0 0 48 48" className="size-[18px]">
-                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5Z" transform="translate(0 5)" />
-                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.9c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6C44.36 38.04 46.98 31.95 46.98 24.55Z" transform="translate(0 -1)" />
-                <path fill="#FBBC05" d="M10.53 28.59A14.4 14.4 0 0 1 9.75 24c0-1.59.27-3.13.76-4.59l-7.98-6.2A23.9 23.9 0 0 0 0 24c0 3.89.93 7.57 2.56 10.78l7.97-6.19Z" />
-                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.9-5.8l-7.73-6c-2.14 1.44-4.89 2.3-8.17 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48Z" transform="translate(0 -5)" />
-              </svg>
-              Continue with Google
-            </a>
-            {authState === "checking" ? (
-              <div className="flex items-center gap-2 text-sm text-slate-500">
-                <LoaderCircle size={15} className="animate-spin" />
-                Checking secure access…
-              </div>
-            ) : (
-              <>
-                <div className="flex items-center gap-3 text-[10px] uppercase tracking-[0.16em] text-slate-500">
-                  <span className="h-px flex-1 bg-white/10" />
-                  or continue with email
-                  <span className="h-px flex-1 bg-white/10" />
-                </div>
-                <label className="block space-y-2 text-xs text-slate-300">
-                  Email address
-                  <input
-                    type="email"
-                    autoComplete="email"
-                    required
-                    maxLength={254}
-                    value={authEmail}
-                    onChange={(event) => setAuthEmail(event.target.value)}
-                    className="w-full rounded-lg border border-white/10 bg-[#0b0e12] px-3 py-2.5 text-sm outline-none focus:border-emerald-400/50"
-                  />
-                </label>
-                <label className="block space-y-2 text-xs text-slate-300">
-                  Password {authMode === "register" && <span className="text-slate-500">(at least 12 characters)</span>}
-                  <input
-                    type="password"
-                    autoComplete={authMode === "login" ? "current-password" : "new-password"}
-                    required
-                    maxLength={256}
-                    minLength={authMode === "register" ? 12 : 1}
-                    value={authPassword}
-                    onChange={(event) => setAuthPassword(event.target.value)}
-                    className="w-full rounded-lg border border-white/10 bg-[#0b0e12] px-3 py-2.5 text-sm outline-none focus:border-emerald-400/50"
-                  />
-                </label>
-                {authNotice && <p role="status" className="text-xs leading-5 text-emerald-200">{authNotice}</p>}
-                {authError && <p role="alert" className="text-xs text-rose-300">{authError}</p>}
-                <button
-                  type="submit"
-                  disabled={authBusy || !authPassword}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 px-3 py-2.5 text-sm font-semibold text-white hover:bg-emerald-400 disabled:opacity-50"
-                >
-                  {authBusy && <LoaderCircle size={15} className="animate-spin" />}
-                  {authMode === "login" ? "Sign in" : "Create account"}
-                </button>
+              Sign in
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode("register");
+                accountSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+              }}
+              className="rounded-lg bg-emerald-500 px-3.5 py-2 text-xs font-semibold text-white hover:bg-emerald-400 sm:text-sm"
+            >
+              Start for free
+            </button>
+          </div>
+        </header>
+
+        <section className="mx-auto max-w-5xl px-5 pb-16 pt-16 text-center sm:px-8 sm:pb-20 sm:pt-24">
+          <span className="inline-flex items-center gap-2 rounded-full border border-emerald-300/15 bg-emerald-300/[0.06] px-3 py-1.5 text-[11px] font-medium text-emerald-200">
+            <Sparkles size={13} /> AI website builder · one free project
+          </span>
+          <h1 className="mt-6 text-4xl font-semibold tracking-tight sm:text-6xl">What will you build?</h1>
+          <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-slate-400 sm:text-base">
+            Describe an idea, review a proposal, then generate and preview a React project. Start free—no payment details required.
+          </p>
+          <form
+            onSubmit={startOnboarding}
+            className="mx-auto mt-8 max-w-3xl rounded-2xl border border-white/10 bg-[#11171d] p-3 text-left shadow-2xl shadow-black/20 focus-within:border-emerald-300/40 sm:p-4"
+          >
+            <label htmlFor="landing-prompt" className="sr-only">Describe the project you want to build</label>
+            <textarea
+              id="landing-prompt"
+              rows={3}
+              maxLength={4000}
+              value={landingPrompt}
+              onChange={(event) => setLandingPrompt(event.target.value)}
+              placeholder="Design a wireframe for..."
+              className="w-full resize-y bg-transparent px-2 py-2 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-600 sm:text-base"
+            />
+            <div className="flex items-center justify-between gap-3 border-t border-white/[0.07] pt-3">
+              <span className="text-[11px] text-slate-500">Your prompt is kept until you sign in.</span>
+              <button
+                type="submit"
+                disabled={!landingPrompt.trim() || authState === "checking"}
+                aria-label="Start building"
+                className="grid size-10 shrink-0 place-items-center rounded-xl bg-emerald-500 text-white transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ArrowUp size={19} />
+              </button>
+            </div>
+          </form>
+          <div className="mt-5 flex flex-wrap justify-center gap-2">
+            {[
+              ["🌐 Website", "Design a responsive website for "],
+              ["📱 Mobile UI", "Design a responsive mobile-style web interface for "],
+              ["🎨 Design", "Create a polished UI design for "],
+              ["📊 Slides", "Create a presentation-style landing page for "],
+              ["✨ Animation", "Design a web page with subtle animations for "],
+            ].map(([label, prompt]) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => {
+                  setLandingPrompt(prompt);
+                  document.getElementById("landing-prompt")?.focus();
+                }}
+                className="rounded-full border border-white/[0.09] bg-white/[0.025] px-3.5 py-2 text-xs text-slate-400 transition hover:border-emerald-300/30 hover:text-emerald-100"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section id="features" className="border-y border-white/[0.07] bg-white/[0.015] px-5 py-14 sm:px-8">
+          <div className="mx-auto max-w-6xl">
+            <div className="max-w-xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">Built for ideas</p>
+              <h2 className="mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">From prompt to working preview</h2>
+            </div>
+            <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {[
+                [Sparkles, "AI project agent", "Get a structured proposal before code is generated."],
+                [Code2, "Editable source", "Inspect and edit generated React and TypeScript files."],
+                [Monitor, "Live preview", "See responsive UI updates in an in-browser React sandbox."],
+                [ShieldCheck, "Protected account", "Verified sign-in, server-side project limits, and payment checks."],
+              ].map(([Icon, title, description]) => (
+                <article key={String(title)} className="rounded-2xl border border-white/[0.08] bg-[#101419] p-5">
+                  <span className="grid size-9 place-items-center rounded-xl bg-emerald-400/10 text-emerald-300">
+                    <Icon size={17} />
+                  </span>
+                  <h3 className="mt-4 text-sm font-semibold text-slate-100">{String(title)}</h3>
+                  <p className="mt-2 text-xs leading-5 text-slate-400">{String(description)}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section id="plans" className="mx-auto max-w-6xl px-5 py-14 sm:px-8 sm:py-16">
+          <div className="text-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">Straightforward plans</p>
+            <h2 className="mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">Try it before you upgrade</h2>
+          </div>
+          <div className="mx-auto mt-7 grid max-w-5xl gap-3 md:grid-cols-3">
+            {[
+              { name: "Starter", price: "$0", term: "/ month", description: "One generated project to try the builder.", detail: "Live preview included" },
+              { name: "Pro monthly", price: "$14.99", term: "/ month", description: "Create projects and export project JSON.", detail: "ABA KHQR · manual renewal" },
+              { name: "Pro annual", price: "$129.99", term: "/ year", description: "Pro access for a single prepaid year.", detail: "ABA KHQR · manual renewal" },
+            ].map((plan) => (
+              <article key={plan.name} className="rounded-2xl border border-white/[0.09] bg-[#101419] p-5">
+                <h3 className="text-sm font-semibold">{plan.name}</h3>
+                <p className="mt-4 flex items-baseline gap-1.5">
+                  <span className="text-3xl font-semibold tracking-tight">{plan.price}</span>
+                  <span className="text-xs text-slate-500">{plan.term}</span>
+                </p>
+                <p className="mt-3 min-h-10 text-xs leading-5 text-slate-400">{plan.description}</p>
+                <p className="mt-3 border-t border-white/[0.07] pt-3 text-[11px] text-slate-500">{plan.detail}</p>
                 <button
                   type="button"
                   onClick={() => {
-                    setAuthMode((current) => current === "login" ? "register" : "login");
-                    setAuthError("");
-                    setAuthNotice("");
+                    if (plan.price === "$0") setAuthMode("register");
+                    else window.location.assign("/pricing");
+                    accountSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
                   }}
-                  className="w-full text-xs text-slate-400 hover:text-emerald-200"
+                  className="mt-5 min-h-10 w-full rounded-lg border border-white/10 px-3 py-2 text-xs font-semibold text-slate-200 transition hover:border-emerald-300/30 hover:bg-emerald-400/[0.06]"
                 >
-                  {authMode === "login" ? "New here? Create an account" : "Already registered? Sign in"}
+                  {plan.price === "$0" ? "Start for free" : "View plan & pay"}
                 </button>
-              </>
-            )}
-          </form>
-          <Link href="/pricing" className="text-xs font-medium text-emerald-300 hover:text-emerald-200">
-            View Pro pricing
-          </Link>
-        </div>
+              </article>
+            ))}
+          </div>
+          <p className="mx-auto mt-4 max-w-3xl text-center text-[11px] leading-5 text-slate-500">
+            Pro plans are prepaid and do not auto-renew. Website publishing and hosting are not currently provided.
+          </p>
+        </section>
+
+        <section ref={accountSectionRef} id="account" className="border-t border-white/[0.07] bg-[#0e1217] px-5 py-14 sm:px-8">
+          <div className="mx-auto grid max-w-5xl gap-8 md:grid-cols-[1fr_420px] md:items-center">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">Get started</p>
+              <h2 className="mt-3 text-2xl font-semibold tracking-tight sm:text-3xl">Build your first project for free</h2>
+              <p className="mt-3 max-w-lg text-sm leading-6 text-slate-400">
+                Create and verify an account, then use the Builder to generate one project with a live preview. No payment is needed to start.
+              </p>
+              <ul className="mt-5 space-y-2 text-xs text-slate-400">
+                <li className="flex items-center gap-2"><Check size={14} className="text-emerald-300" /> One trial project per account</li>
+                <li className="flex items-center gap-2"><Check size={14} className="text-emerald-300" /> Upgrade only when you need more projects or export</li>
+              </ul>
+            </div>
+            <form
+              onSubmit={submitLogin}
+              className="space-y-4 rounded-2xl border border-white/10 bg-[#11171d] p-5 shadow-xl sm:p-6"
+            >
+              <div className="flex items-start gap-3">
+                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-emerald-500/15 text-emerald-300">
+                  <ShieldCheck size={19} />
+                </span>
+                <div>
+                  <h2 className="text-base font-semibold">{authMode === "login" ? "Sign in to Phollet AI" : "Create your free account"}</h2>
+                  <p className="mt-1 text-xs leading-5 text-slate-400">Email verification is required before Builder access.</p>
+                </div>
+              </div>
+              <a
+                href="/api/auth/google"
+                className="flex min-h-10 w-full items-center justify-center gap-3 rounded-lg border border-white/10 bg-white px-3 py-2 text-sm font-semibold text-slate-800 transition hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400"
+              >
+                <svg aria-hidden="true" viewBox="0 0 48 48" className="size-[18px]">
+                  <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5Z" transform="translate(0 5)" />
+                  <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.9c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6C44.36 38.04 46.98 31.95 46.98 24.55Z" transform="translate(0 -1)" />
+                  <path fill="#FBBC05" d="M10.53 28.59A14.4 14.4 0 0 1 9.75 24c0-1.59.27-3.13.76-4.59l-7.98-6.2A23.9 23.9 0 0 0 0 24c0 3.89.93 7.57 2.56 10.78l7.97-6.19Z" />
+                  <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.9-5.8l-7.73-6c-2.14 1.44-4.89 2.3-8.17 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48Z" transform="translate(0 -5)" />
+                </svg>
+                Continue with Google
+              </a>
+              {authState === "checking" ? (
+                <div className="flex items-center gap-2 text-sm text-slate-500">
+                  <LoaderCircle size={15} className="animate-spin" />
+                  Checking secure access…
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-3 text-[10px] uppercase tracking-[0.16em] text-slate-500">
+                    <span className="h-px flex-1 bg-white/10" />
+                    or continue with email
+                    <span className="h-px flex-1 bg-white/10" />
+                  </div>
+                  <label className="block space-y-2 text-xs text-slate-300">
+                    Email address
+                    <input
+                      type="email"
+                      autoComplete="email"
+                      required
+                      maxLength={254}
+                      value={authEmail}
+                      onChange={(event) => setAuthEmail(event.target.value)}
+                      className="w-full rounded-lg border border-white/10 bg-[#0b0e12] px-3 py-2.5 text-sm outline-none focus:border-emerald-400/50"
+                    />
+                  </label>
+                  <label className="block space-y-2 text-xs text-slate-300">
+                    Password {authMode === "register" && <span className="text-slate-500">(at least 12 characters)</span>}
+                    <input
+                      type="password"
+                      autoComplete={authMode === "login" ? "current-password" : "new-password"}
+                      required
+                      maxLength={256}
+                      minLength={authMode === "register" ? 12 : 1}
+                      value={authPassword}
+                      onChange={(event) => setAuthPassword(event.target.value)}
+                      className="w-full rounded-lg border border-white/10 bg-[#0b0e12] px-3 py-2.5 text-sm outline-none focus:border-emerald-400/50"
+                    />
+                  </label>
+                  {authNotice && <p role="status" className="text-xs leading-5 text-emerald-200">{authNotice}</p>}
+                  {authError && <p role="alert" className="text-xs leading-5 text-rose-300">{authError}</p>}
+                  <button
+                    type="submit"
+                    disabled={authBusy || !authPassword}
+                    className="flex min-h-10 w-full items-center justify-center gap-2 rounded-lg bg-emerald-500 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-400 disabled:opacity-50"
+                  >
+                    {authBusy && <LoaderCircle size={15} className="animate-spin" />}
+                    {authMode === "login" ? "Sign in" : "Create free account"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode((current) => current === "login" ? "register" : "login");
+                      setAuthError("");
+                      setAuthNotice("");
+                    }}
+                    className="w-full text-xs text-slate-400 hover:text-emerald-200"
+                  >
+                    {authMode === "login" ? "New here? Create a free account" : "Already registered? Sign in"}
+                  </button>
+                </>
+              )}
+              <Link href="/pricing" className="block text-center text-xs font-medium text-emerald-300 hover:text-emerald-200">
+                See all plans and ABA KHQR checkout
+              </Link>
+            </form>
+          </div>
+        </section>
       </main>
     );
   }
@@ -782,8 +1212,30 @@ export default function Builder() {
             <span className="size-1.5 rounded-full bg-emerald-400" />
             React sandbox
           </span>
+          <span className="hidden rounded-full border border-emerald-300/15 bg-emerald-300/[0.05] px-2.5 py-1 text-[10px] font-medium text-emerald-200 sm:inline-flex">
+            {isPro ? "Pro active" : `Free trial · ${trialProjectCount}/${FREE_TRIAL_PROJECT_LIMIT} projects`}
+          </span>
         </div>
         <div className="flex items-center gap-2">
+          {savedProjects.length > 0 && (
+            <select
+              aria-label="Open a saved project"
+              value={currentProjectId ?? ""}
+              onChange={(event) => {
+                const projectId = event.currentTarget.value;
+                if (projectId) void openSavedProject(projectId);
+                else clearWorkspace();
+              }}
+              className="max-w-32 rounded-lg border border-white/10 bg-[#151a20] px-2 py-2 text-[11px] text-slate-300 outline-none focus:border-emerald-400/50 sm:max-w-44 sm:text-xs"
+            >
+              <option value="">New project</option>
+              {savedProjects.map((project, index) => (
+                <option key={project.id} value={project.id}>
+                  Project {index + 1} · {project.updatedAt.slice(0, 10)}
+                </option>
+              ))}
+            </select>
+          )}
           <Link
             href="/pricing"
             className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-white/[0.06]"
@@ -1077,23 +1529,52 @@ export default function Builder() {
             <button
               type="button"
               className="inline-flex items-center gap-1 hover:text-slate-300"
-              onClick={() => {
-                const content = JSON.stringify({ files, dependencies }, null, 2);
-                const blob = new Blob([content], { type: "application/json" });
-                const url = URL.createObjectURL(blob);
-                const anchor = document.createElement("a");
-                anchor.href = url;
-                anchor.download = "phollet-project.json";
-                anchor.click();
-                URL.revokeObjectURL(url);
-              }}
+              onClick={() => void exportProject()}
             >
               <ArrowDownToLine size={12} />
-              Export project JSON
+              Export project JSON{!isPro && " · Pro"}
             </button>
           </div>
         </section>
       </div>
+      {paywallOpen && (
+        <div
+          className="fixed inset-0 z-40 grid place-items-center bg-black/75 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setPaywallOpen(false);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="trial-paywall-title"
+            className="w-full max-w-md rounded-2xl border border-white/10 bg-[#11171d] p-6 text-center shadow-2xl"
+          >
+            <div className="mx-auto grid size-11 place-items-center rounded-xl bg-emerald-500/15 text-emerald-300">
+              <Sparkles size={21} />
+            </div>
+            <h2 id="trial-paywall-title" className="mt-4 text-lg font-semibold">
+              {isPro ? "Pro access is required" : "Your free project is ready"}
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              The free trial includes one project and its live preview. Upgrade to Pro to create more projects and export project JSON. Pro payments use ABA KHQR and do not auto-renew.
+            </p>
+            <Link
+              href="/pricing"
+              className="mt-5 inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-400"
+            >
+              View Pro plans
+            </Link>
+            <button
+              type="button"
+              onClick={() => setPaywallOpen(false)}
+              className="mt-2 w-full rounded-lg px-3 py-2 text-xs text-slate-400 hover:bg-white/[0.06]"
+            >
+              Continue with my trial project
+            </button>
+          </section>
+        </div>
+      )}
       {settingsOpen && (
         <div
           className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4"
@@ -1111,7 +1592,7 @@ export default function Builder() {
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 id="settings-title" className="text-base font-semibold text-slate-100">Settings &amp; privacy</h2>
-                <p className="mt-1 text-xs leading-5 text-slate-500">Manage this private Builder session and understand how your data is handled.</p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">Manage your Builder session and understand how your data is handled.</p>
               </div>
               <button
                 ref={settingsCloseRef}
@@ -1131,7 +1612,7 @@ export default function Builder() {
                   Data &amp; privacy
                 </h3>
                 <ul className="mt-2 space-y-2 text-xs leading-5 text-slate-400">
-                  <li>Chat, images, and generated files are held in this browser tab and are not saved by this app to a database.</li>
+                  <li>Generated project files are saved to your account so you can restore your latest project. Chat history and image attachments remain in this browser session.</li>
                   <li>Prompts and attached images are sent to the configured AI provider to answer your request. The provider’s own data policies apply.</li>
                   <li>Images are resized and re-encoded before upload to reduce size and remove embedded metadata. Only JPEG, PNG, and WebP inputs are accepted.</li>
                   <li>Voice transcription uses your browser’s speech service; audio is not sent to this Builder API, but browser-provider handling may vary.</li>
@@ -1141,7 +1622,7 @@ export default function Builder() {
               <section className="rounded-xl border border-white/[0.08] bg-white/[0.025] p-4">
                 <h3 className="text-xs font-semibold text-slate-200">Credentials &amp; access</h3>
                 <p className="mt-2 text-xs leading-5 text-slate-400">
-                  AI keys stay on the server in environment variables and are never requested by this page. Access uses a shared administrator password; do not share this workspace publicly or include secrets in prompts or generated code.
+                  AI keys stay on the server in environment variables and are never requested by this page. Account access uses a verified email/password or Google sign-in with a secure session cookie. Do not include credentials in prompts or generated code.
                 </p>
               </section>
 
@@ -1149,10 +1630,10 @@ export default function Builder() {
                 <button
                   type="button"
                   onClick={clearWorkspace}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs font-medium text-slate-300 hover:border-rose-400/30 hover:text-rose-200"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-xs font-medium text-slate-300 hover:border-emerald-400/30 hover:text-emerald-200"
                 >
-                  <Trash2 size={14} />
-                  Clear workspace data
+                  <Plus size={14} />
+                  Start a new project
                 </button>
                 <button
                   type="button"

@@ -14,7 +14,7 @@ import {
   databaseErrorCode,
   databaseFailureMessage,
   ensureBillingSchema,
-  getActiveSubscription,
+  getBuilderAccess,
   getPool,
 } from "@/lib/database";
 import {
@@ -110,27 +110,9 @@ export async function GET(request: Request) {
     const userId = getSessionUserId(request);
     if (!userId) return authResponse({ authenticated: false });
     await ensureBillingSchema();
-    const result = await getPool().query<{
-      email: string;
-      plan_id: string | null;
-      current_period_end: Date | null;
-    }>(
-      `SELECT u.email, s.plan_id, s.current_period_end
-       FROM builder_users u
-       LEFT JOIN builder_subscriptions s
-         ON s.user_id = u.id AND s.status = 'active' AND s.current_period_end > NOW()
-       WHERE u.id = $1 AND u.verified_at IS NOT NULL`,
-      [userId],
-    );
-    const user = result.rows[0];
-    if (!user) return authResponse({ authenticated: false });
-    return authResponse({
-      authenticated: true,
-      email: user.email,
-      subscription: user.plan_id
-        ? { planId: user.plan_id, currentPeriodEnd: user.current_period_end?.toISOString() }
-        : null,
-    });
+    const access = await getBuilderAccess(userId);
+    if (!access) return authResponse({ authenticated: false });
+    return authResponse({ authenticated: true, ...access });
   } catch (error) {
     if (error instanceof DatabaseConfigurationError) {
       return authResponse({ error: "Account storage is not configured." }, 503);
@@ -226,14 +208,12 @@ export async function POST(request: Request) {
     if (!user.verified_at) {
       return authResponse({ error: "Verify your email using the link sent to your inbox before signing in." }, 403);
     }
-    const subscription = await getActiveSubscription(user.id);
+    const access = await getBuilderAccess(user.id);
+    if (!access) return authResponse({ error: "Sign in to continue." }, 401);
     return authResponse(
       {
         authenticated: true,
-        email,
-        subscription: subscription
-          ? { planId: subscription.plan_id, currentPeriodEnd: subscription.current_period_end.toISOString() }
-          : null,
+        ...access,
       },
       200,
       { "Set-Cookie": createSessionCookie(user.id) },
