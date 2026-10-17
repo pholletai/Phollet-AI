@@ -13,6 +13,7 @@ import { isPlanId, PLANS } from "@/lib/payments/plans";
 import { getPaymentProvider, type PaymentOrder } from "@/lib/payments/provider";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 const CheckoutSchema = z.object({

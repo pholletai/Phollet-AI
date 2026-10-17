@@ -74,6 +74,16 @@ type ImageAttachment = {
   previewUrl: string;
 };
 
+type StoredOnboardingDraft = {
+  prompt: string;
+  images: Array<Pick<ImageAttachment, "id" | "name" | "mimeType" | "data">>;
+};
+
+const ONBOARDING_DRAFT_STORAGE_KEY = "phollet-builder-onboarding-v1";
+const MAX_PROMPT_IMAGES = 4;
+const MAX_IMAGE_UPLOAD_BYTES = 2 * 1024 * 1024;
+const MAX_ONBOARDING_SESSION_CHARS = 2_400_000;
+
 type SpeechRecognitionLike = {
   lang: string;
   continuous: boolean;
@@ -201,7 +211,10 @@ function isSavedProjectList(value: unknown): value is { projects: SavedProjectSu
 }
 
 async function normalizeImage(file: File): Promise<ImageAttachment> {
-  if (!file.type.startsWith("image/") || file.size > 10 * 1024 * 1024) {
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    throw new Error("Choose a JPEG, PNG, or WebP image.");
+  }
+  if (file.size > 10 * 1024 * 1024) {
     throw new Error("Choose an image smaller than 10 MB.");
   }
 
@@ -246,6 +259,53 @@ async function normalizeImage(file: File): Promise<ImageAttachment> {
   }
 }
 
+function parseStoredOnboardingDraft(value: unknown): StoredOnboardingDraft | null {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("prompt" in value) ||
+    typeof value.prompt !== "string" ||
+    value.prompt.length > 4000 ||
+    !("images" in value) ||
+    !Array.isArray(value.images) ||
+    value.images.length > MAX_PROMPT_IMAGES
+  ) {
+    return null;
+  }
+  let totalBytes = 0;
+  const images: StoredOnboardingDraft["images"] = [];
+  for (const image of value.images) {
+    if (
+      typeof image !== "object" ||
+      image === null ||
+      !("id" in image) ||
+      typeof image.id !== "string" ||
+      image.id.length > 100 ||
+      !("name" in image) ||
+      typeof image.name !== "string" ||
+      image.name.length > 120 ||
+      !("mimeType" in image) ||
+      image.mimeType !== "image/jpeg" ||
+      !("data" in image) ||
+      typeof image.data !== "string" ||
+      image.data.length > 2_800_000 ||
+      !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(image.data)
+    ) {
+      return null;
+    }
+    const bytes = Math.floor(image.data.length * 0.75) - (image.data.endsWith("==") ? 2 : image.data.endsWith("=") ? 1 : 0);
+    totalBytes += bytes;
+    if (bytes <= 0 || bytes > 1_572_864 || totalBytes > MAX_IMAGE_UPLOAD_BYTES) return null;
+    images.push({
+      id: image.id,
+      name: image.name.slice(0, 120),
+      mimeType: "image/jpeg",
+      data: image.data,
+    });
+  }
+  return { prompt: value.prompt, images };
+}
+
 export default function Builder() {
   const [files, setFiles] = useState<ProjectFile[]>(starterFiles);
   const [dependencies, setDependencies] = useState<Record<string, string>>({});
@@ -272,6 +332,13 @@ export default function Builder() {
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [savedProjects, setSavedProjects] = useState<SavedProjectSummary[]>([]);
   const [landingPrompt, setLandingPrompt] = useState("");
+  const [landingAttachmentError, setLandingAttachmentError] = useState("");
+  const [cameraUploadFallback, setCameraUploadFallback] = useState(false);
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [cameraStarting, setCameraStarting] = useState(false);
+  const [cameraCapture, setCameraCapture] = useState<File | null>(null);
+  const [cameraCaptureUrl, setCameraCaptureUrl] = useState("");
   const [authError, setAuthError] = useState("");
   const [authNotice, setAuthNotice] = useState("");
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
@@ -280,6 +347,15 @@ export default function Builder() {
   const [authBusy, setAuthBusy] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const landingImageInputRef = useRef<HTMLInputElement>(null);
+  const landingCameraInputRef = useRef<HTMLInputElement>(null);
+  const attachmentMenuRef = useRef<HTMLDivElement>(null);
+  const firstAttachmentMenuItemRef = useRef<HTMLButtonElement>(null);
+  const cameraVideoRef = useRef<HTMLVideoElement>(null);
+  const cameraStreamRef = useRef<MediaStream | null>(null);
+  const cameraCaptureUrlRef = useRef("");
+  const cameraRequestIdRef = useRef(0);
+  const attachmentButtonRef = useRef<HTMLButtonElement>(null);
   const accountSectionRef = useRef<HTMLElement>(null);
   const settingsDialogRef = useRef<HTMLElement>(null);
   const settingsCloseRef = useRef<HTMLButtonElement>(null);
@@ -287,6 +363,28 @@ export default function Builder() {
   const imageUrlsRef = useRef(new Set<string>());
   const imageTaskIdRef = useRef(0);
   const requestControllerRef = useRef<AbortController | null>(null);
+
+  function persistOnboardingDraft(prompt: string, images: ImageAttachment[]) {
+    try {
+      if (!prompt && images.length === 0) {
+        window.sessionStorage.removeItem(ONBOARDING_DRAFT_STORAGE_KEY);
+        return true;
+      }
+      const serialized = JSON.stringify({
+        prompt,
+        images: images.map(({ id, name, mimeType, data }) => ({ id, name, mimeType, data })),
+      } satisfies StoredOnboardingDraft);
+      if (serialized.length > MAX_ONBOARDING_SESSION_CHARS) {
+        setLandingAttachmentError("These attachments are too large to keep through sign-in. Remove an image and try again.");
+        return false;
+      }
+      window.sessionStorage.setItem(ONBOARDING_DRAFT_STORAGE_KEY, serialized);
+      return true;
+    } catch {
+      setLandingAttachmentError("This browser could not save your attachments for sign-in. You can still upload them after signing in.");
+      return false;
+    }
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -298,6 +396,42 @@ export default function Builder() {
       }
     } catch {
       // Browser storage can be unavailable in private or restricted contexts.
+    }
+    try {
+      const serialized = window.sessionStorage.getItem(ONBOARDING_DRAFT_STORAGE_KEY);
+      if (serialized) {
+        if (serialized.length > MAX_ONBOARDING_SESSION_CHARS) {
+          throw new Error("Saved onboarding data exceeded its size limit.");
+        }
+        const savedDraft = parseStoredOnboardingDraft(JSON.parse(serialized));
+        if (!savedDraft) {
+          window.sessionStorage.removeItem(ONBOARDING_DRAFT_STORAGE_KEY);
+          setLandingAttachmentError("Saved image attachments could not be restored. Please attach them again.");
+        } else {
+          const restoredImages = savedDraft.images.map((image) => {
+            const binary = atob(image.data);
+            const bytes = new Uint8Array(binary.length);
+            for (let index = 0; index < binary.length; index += 1) {
+              bytes[index] = binary.charCodeAt(index);
+            }
+            const previewUrl = URL.createObjectURL(
+              new Blob([bytes], { type: image.mimeType }),
+            );
+            imageUrlsRef.current.add(previewUrl);
+            return { ...image, previewUrl };
+          });
+          setLandingPrompt(savedDraft.prompt);
+          setDraft(savedDraft.prompt);
+          setAttachments(restoredImages);
+        }
+      }
+    } catch {
+      try {
+        window.sessionStorage.removeItem(ONBOARDING_DRAFT_STORAGE_KEY);
+      } catch {
+        // Storage may be unavailable in private or restricted contexts.
+      }
+      setLandingAttachmentError("Saved image attachments could not be restored. Please attach them again.");
     }
     const pageUrl = new URL(window.location.href);
     const verificationToken = pageUrl.searchParams.get("verify");
@@ -311,7 +445,7 @@ export default function Builder() {
       google_failed: "Google could not verify your account. Please try again.",
       google_configuration_error: "Google OAuth rejected this app configuration. Confirm the client ID, client secret, and exact callback URL in Google Cloud Console and Vercel.",
       google_unverified: "Google did not confirm this email address. Verify it with Google and try again.",
-      google_account_conflict: "This Google account could not be linked to the existing account. Contact support.",
+      google_account_conflict: "This email already belongs to a separate account. Sign in with its original method or contact support.",
       database_not_configured: "Account storage is not configured. Please contact the administrator.",
       database_unavailable: "The account database is temporarily unreachable. Please try again shortly.",
       service_unavailable: "Account service is temporarily unavailable. Please try again shortly.",
@@ -428,10 +562,73 @@ export default function Builder() {
     if (authState !== "signedIn") return;
     try {
       window.sessionStorage.removeItem("phollet-builder-onboarding-prompt");
+      window.sessionStorage.removeItem(ONBOARDING_DRAFT_STORAGE_KEY);
     } catch {
       // Storage cleanup is best effort; it contains no authentication credentials.
     }
   }, [authState]);
+
+  useEffect(() => {
+    const video = cameraVideoRef.current;
+    if (!cameraStream || !video) return;
+    video.srcObject = cameraStream;
+    void video.play().catch(() => {
+      setLandingAttachmentError("The camera preview could not start. Choose an image from your device instead.");
+    });
+    return () => {
+      video.srcObject = null;
+    };
+  }, [cameraStream]);
+
+  useEffect(
+    () => () => {
+      cameraRequestIdRef.current += 1;
+      for (const track of cameraStreamRef.current?.getTracks() ?? []) track.stop();
+      if (cameraCaptureUrlRef.current) URL.revokeObjectURL(cameraCaptureUrlRef.current);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!attachmentMenuOpen) return;
+    firstAttachmentMenuItemRef.current?.focus();
+
+    function handleMenuKeydown(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setAttachmentMenuOpen(false);
+        attachmentButtonRef.current?.focus();
+        return;
+      }
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp" && event.key !== "Home" && event.key !== "End") {
+        return;
+      }
+      const items = attachmentMenuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]');
+      if (!items?.length) return;
+      event.preventDefault();
+      const currentIndex = Array.from(items).indexOf(document.activeElement as HTMLButtonElement);
+      const nextIndex =
+        event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? items.length - 1
+            : (currentIndex + (event.key === "ArrowDown" ? 1 : items.length - 1)) % items.length;
+      items[nextIndex].focus();
+    }
+
+    function handleOutsidePointer(event: PointerEvent) {
+      if (event.target instanceof Node && !attachmentMenuRef.current?.contains(event.target)) {
+        setAttachmentMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("keydown", handleMenuKeydown);
+    document.addEventListener("pointerdown", handleOutsidePointer);
+    return () => {
+      document.removeEventListener("keydown", handleMenuKeydown);
+      document.removeEventListener("pointerdown", handleOutsidePointer);
+    };
+  }, [attachmentMenuOpen]);
 
   useEffect(
     () => () => {
@@ -535,19 +732,21 @@ export default function Builder() {
     imageUrlsRef.current.delete(url);
   }
 
-  async function addImageFiles(event: ChangeEvent<HTMLInputElement>) {
-    const selected = Array.from(event.target.files ?? []);
-    event.target.value = "";
+  async function processImageFiles(selected: File[]) {
     if (selected.length === 0) return;
 
-    const availableSlots = 2 - attachments.length;
+    const availableSlots = MAX_PROMPT_IMAGES - attachments.length;
     if (availableSlots <= 0) {
-      setError("You can attach up to two images per prompt.");
+      const message = "You can attach up to four images per prompt.";
+      setError(message);
+      setLandingAttachmentError(message);
       return;
     }
 
     setProcessingImages(true);
     setError("");
+    setLandingAttachmentError("");
+    setCameraUploadFallback(false);
     const prepared: ImageAttachment[] = [];
     const taskId = ++imageTaskIdRef.current;
     try {
@@ -561,29 +760,147 @@ export default function Builder() {
         for (const image of prepared) releaseImageUrl(image.previewUrl);
         return;
       }
-      const newTotal = [...attachments, ...prepared].reduce(
+      const nextAttachments = [...attachments, ...prepared];
+      const newTotal = nextAttachments.reduce(
         (total, image) => total + Math.ceil(image.data.length * 0.75),
         0,
       );
-      if (newTotal > 2 * 1024 * 1024) {
+      if (newTotal > MAX_IMAGE_UPLOAD_BYTES) {
         throw new Error("The combined image upload must be smaller than 2 MB.");
       }
-      setAttachments((current) => [...current, ...prepared]);
+      setAttachments(nextAttachments);
+      if (authState !== "signedIn") {
+        persistOnboardingDraft(landingPrompt, nextAttachments);
+      }
+      if (selected.length > availableSlots) {
+        setLandingAttachmentError("Only the first four images can be attached to a prompt.");
+      }
     } catch (cause) {
       for (const image of prepared) releaseImageUrl(image.previewUrl);
       const message = cause instanceof Error ? cause.message : "Could not prepare the selected image.";
       setError(message);
+      setLandingAttachmentError(message);
     } finally {
       if (taskId === imageTaskIdRef.current) setProcessingImages(false);
     }
   }
 
+  function addImageFiles(event: ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    void processImageFiles(selected);
+  }
+
+  function addLandingImageFiles(event: ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    void processImageFiles(selected);
+  }
+
   function removeImage(imageId: string) {
-    setAttachments((current) => {
-      const removed = current.find((image) => image.id === imageId);
-      if (removed) releaseImageUrl(removed.previewUrl);
-      return current.filter((image) => image.id !== imageId);
-    });
+    const removed = attachments.find((image) => image.id === imageId);
+    if (removed) releaseImageUrl(removed.previewUrl);
+    const remaining = attachments.filter((image) => image.id !== imageId);
+    setAttachments(remaining);
+    if (authState !== "signedIn") persistOnboardingDraft(landingPrompt, remaining);
+  }
+
+  function closeCamera() {
+    cameraRequestIdRef.current += 1;
+    setCameraStarting(false);
+    for (const track of cameraStreamRef.current?.getTracks() ?? []) track.stop();
+    cameraStreamRef.current = null;
+    setCameraStream(null);
+    setCameraCapture(null);
+    if (cameraCaptureUrlRef.current) URL.revokeObjectURL(cameraCaptureUrlRef.current);
+    cameraCaptureUrlRef.current = "";
+    setCameraCaptureUrl("");
+  }
+
+  async function openCamera() {
+    setAttachmentMenuOpen(false);
+    setCameraUploadFallback(false);
+    setLandingAttachmentError("");
+    const mobileCapture =
+      window.matchMedia("(max-width: 767px)").matches &&
+      (navigator.maxTouchPoints > 0 || window.matchMedia("(pointer: coarse)").matches);
+    if (mobileCapture) {
+      landingCameraInputRef.current?.click();
+      return;
+    }
+    const requestId = ++cameraRequestIdRef.current;
+    setCameraStarting(true);
+    try {
+      if (!navigator.mediaDevices?.getUserMedia || !window.isSecureContext) {
+        throw new Error("Camera access is unavailable in this browser context.");
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { facingMode: "environment" },
+      });
+      if (requestId !== cameraRequestIdRef.current) {
+        for (const track of stream.getTracks()) track.stop();
+        return;
+      }
+      cameraStreamRef.current = stream;
+      setCameraStream(stream);
+      setCameraCapture(null);
+      setLandingAttachmentError("");
+      setCameraUploadFallback(false);
+    } catch {
+      if (requestId !== cameraRequestIdRef.current) return;
+      setLandingAttachmentError("Camera access is unavailable or denied. Choose an image from your device instead.");
+      setCameraUploadFallback(true);
+      landingImageInputRef.current?.click();
+    } finally {
+      if (requestId === cameraRequestIdRef.current) setCameraStarting(false);
+    }
+  }
+
+  function captureCameraPhoto() {
+    const video = cameraVideoRef.current;
+    if (!video || !video.videoWidth || !video.videoHeight) {
+      setLandingAttachmentError("The camera is not ready yet. Please wait and try again.");
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const context = canvas.getContext("2d");
+    if (!context) {
+      setLandingAttachmentError("This browser could not capture the camera image.");
+      return;
+    }
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          setLandingAttachmentError("The camera photo could not be captured. Please try again.");
+          return;
+        }
+        if (cameraCaptureUrlRef.current) URL.revokeObjectURL(cameraCaptureUrlRef.current);
+        const photo = new File([blob], `camera-${Date.now()}.jpg`, { type: "image/jpeg" });
+        cameraCaptureUrlRef.current = URL.createObjectURL(blob);
+        setCameraCapture(photo);
+        setCameraCaptureUrl(cameraCaptureUrlRef.current);
+      },
+      "image/jpeg",
+      0.9,
+    );
+  }
+
+  function retakeCameraPhoto() {
+    setCameraCapture(null);
+    if (cameraCaptureUrlRef.current) URL.revokeObjectURL(cameraCaptureUrlRef.current);
+    cameraCaptureUrlRef.current = "";
+    setCameraCaptureUrl("");
+  }
+
+  function useCameraPhoto() {
+    if (!cameraCapture) return;
+    const photo = cameraCapture;
+    closeCamera();
+    void processImageFiles([photo]);
   }
 
   function clearWorkspace() {
@@ -598,6 +915,11 @@ export default function Builder() {
     for (const url of imageUrlsRef.current) URL.revokeObjectURL(url);
     imageUrlsRef.current.clear();
     setAttachments([]);
+    setLandingPrompt("");
+    setLandingAttachmentError("");
+    setCameraUploadFallback(false);
+    setAttachmentMenuOpen(false);
+    closeCamera();
     setFiles(starterFiles);
     setDependencies({});
     setActivePath(starterFiles[0].path);
@@ -611,6 +933,7 @@ export default function Builder() {
   function startOnboarding(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const prompt = landingPrompt.trim();
+    persistOnboardingDraft(prompt, attachments);
     if (prompt) {
       setDraft(prompt);
       try {
@@ -618,6 +941,8 @@ export default function Builder() {
       } catch {
         // The prompt can still be used in this page when storage is unavailable.
       }
+    } else {
+      setDraft("");
     }
     setAuthMode("register");
     setAuthNotice("");
@@ -682,8 +1007,17 @@ export default function Builder() {
       const response = await fetch("/api/auth", { method: "DELETE" });
       if (!response.ok) throw new Error("Could not securely end this session. Try again.");
       clearWorkspace();
+      try {
+        window.sessionStorage.removeItem(ONBOARDING_DRAFT_STORAGE_KEY);
+        window.sessionStorage.removeItem("phollet-builder-onboarding-prompt");
+      } catch {
+        setLandingAttachmentError("You are signed out, but this browser could not clear the saved prompt data. Close this tab to remove it.");
+      }
       setIsPro(false);
       setTrialProjectCount(0);
+      setSavedProjects([]);
+      setAuthEmail("");
+      setAuthPassword("");
       setAuthState("signedOut");
       setSettingsOpen(false);
     } catch (cause) {
@@ -974,23 +1308,144 @@ export default function Builder() {
             onSubmit={startOnboarding}
             className="mx-auto mt-8 max-w-3xl rounded-2xl border border-white/10 bg-[#11171d] p-3 text-left shadow-2xl shadow-black/20 focus-within:border-emerald-300/40 sm:p-4"
           >
+            <input
+              ref={landingImageInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              className="hidden"
+              onChange={addLandingImageFiles}
+              aria-label="Upload images / រូបភាព"
+            />
+            <input
+              ref={landingCameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={addLandingImageFiles}
+              aria-label="Take a photo / ថតរូប"
+            />
             <label htmlFor="landing-prompt" className="sr-only">Describe the project you want to build</label>
+            {attachments.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-2 px-1 pt-1" aria-label="Attached images">
+                {attachments.map((image) => (
+                  <div key={image.id} className="relative size-14">
+                    <img
+                      src={image.previewUrl}
+                      alt={`Preview: ${image.name}`}
+                      className="size-14 rounded-lg border border-white/10 object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeImage(image.id)}
+                      aria-label={`Remove ${image.name} / លុបរូបភាព`}
+                      className="absolute -right-2 -top-2 grid size-11 place-items-center rounded-full bg-slate-800/95 text-white shadow hover:bg-rose-500"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
             <textarea
               id="landing-prompt"
               rows={3}
               maxLength={4000}
               value={landingPrompt}
-              onChange={(event) => setLandingPrompt(event.target.value)}
+              onChange={(event) => {
+                const prompt = event.target.value;
+                setLandingPrompt(prompt);
+                persistOnboardingDraft(prompt, attachments);
+              }}
               placeholder="Design a wireframe for..."
               className="w-full resize-y bg-transparent px-2 py-2 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-600 sm:text-base"
             />
+            {landingAttachmentError && (
+              <div role="alert" className="flex flex-wrap items-center gap-2 px-2 pb-2 text-xs leading-5 text-rose-300">
+                <span>{landingAttachmentError}</span>
+                {cameraUploadFallback && (
+                  <button
+                    type="button"
+                    onClick={() => landingImageInputRef.current?.click()}
+                    className="min-h-11 rounded-lg border border-rose-300/20 px-3 font-medium text-rose-200 hover:bg-rose-300/[0.08]"
+                  >
+                    Upload image / បញ្ចូលរូបភាព
+                  </button>
+                )}
+              </div>
+            )}
+            {processingImages && (
+              <p role="status" className="px-2 pb-2 text-xs text-slate-400">Preparing images securely…</p>
+            )}
+            {cameraStarting && (
+              <div role="status" className="flex items-center justify-between gap-2 px-2 pb-2 text-xs text-slate-400">
+                <span>Waiting for camera access…</span>
+                <button
+                  type="button"
+                  onClick={closeCamera}
+                  className="min-h-11 rounded-lg border border-white/10 px-3 text-slate-300 hover:bg-white/[0.06]"
+                >
+                  Cancel / បោះបង់
+                </button>
+              </div>
+            )}
             <div className="flex items-center justify-between gap-3 border-t border-white/[0.07] pt-3">
-              <span className="text-[11px] text-slate-500">Your prompt is kept until you sign in.</span>
+              <div className="flex min-w-0 items-center gap-2">
+                <div ref={attachmentMenuRef} className="relative shrink-0">
+                  <button
+                    ref={attachmentButtonRef}
+                    type="button"
+                    onClick={() => setAttachmentMenuOpen((open) => !open)}
+                    disabled={processingImages || cameraStarting || attachments.length >= MAX_PROMPT_IMAGES}
+                    aria-label="Add context / បន្ថែមឯកសារយោង"
+                    aria-haspopup="menu"
+                    aria-expanded={attachmentMenuOpen}
+                    title="Add context / បន្ថែមឯកសារយោង"
+                    className="grid size-11 place-items-center rounded-xl text-slate-300 transition hover:bg-white/[0.07] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <Plus size={19} />
+                  </button>
+                  {attachmentMenuOpen && (
+                    <div
+                      role="menu"
+                      aria-label="Add context / បន្ថែមឯកសារយោង"
+                      className="absolute bottom-[calc(100%+0.5rem)] left-0 z-20 w-60 rounded-xl border border-white/10 bg-[#171d24] p-1.5 shadow-2xl shadow-black/40"
+                    >
+                      <button
+                        ref={firstAttachmentMenuItemRef}
+                        type="button"
+                        role="menuitem"
+                        onClick={() => void openCamera()}
+                        className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm text-slate-200 hover:bg-white/[0.07]"
+                      >
+                        <Camera size={17} className="shrink-0 text-emerald-300" />
+                        <span>Take photo <span className="text-xs text-slate-500">/ ថតរូប</span></span>
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setAttachmentMenuOpen(false);
+                          landingImageInputRef.current?.click();
+                        }}
+                        className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm text-slate-200 hover:bg-white/[0.07]"
+                      >
+                        <ImagePlus size={17} className="shrink-0 text-slate-400" />
+                        <span>Upload image <span className="text-xs text-slate-500">/ បញ្ចូលរូបភាព</span></span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <span className="truncate text-[11px] text-slate-500">
+                  Prompt and images are kept until you sign in.
+                </span>
+              </div>
               <button
                 type="submit"
-                disabled={!landingPrompt.trim() || authState === "checking"}
-                aria-label="Start building"
-                className="grid size-10 shrink-0 place-items-center rounded-xl bg-emerald-500 text-white transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+                disabled={(!landingPrompt.trim() && attachments.length === 0) || authState === "checking" || processingImages}
+                aria-label="Start building / ចាប់ផ្តើមបង្កើត"
+                className="grid size-11 shrink-0 place-items-center rounded-xl bg-emerald-500 text-white transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <ArrowUp size={19} />
               </button>
@@ -1186,6 +1641,69 @@ export default function Builder() {
             </form>
           </div>
         </section>
+        {cameraStream && (
+          <div
+            className="fixed inset-0 z-50 grid place-items-center bg-black/80 p-4"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) closeCamera();
+            }}
+          >
+            <section
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="camera-title"
+              className="w-full max-w-xl rounded-2xl border border-white/10 bg-[#11171d] p-4 shadow-2xl sm:p-5"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <h2 id="camera-title" className="text-base font-semibold">Take a photo / ថតរូប</h2>
+                <button
+                  type="button"
+                  onClick={closeCamera}
+                  aria-label="Close camera / បិទកាមេរ៉ា"
+                  className="grid size-11 shrink-0 place-items-center rounded-xl text-slate-400 hover:bg-white/[0.07] hover:text-white"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="mt-4 overflow-hidden rounded-xl bg-black">
+                {cameraCaptureUrl ? (
+                  <img src={cameraCaptureUrl} alt="Captured photo preview" className="aspect-video w-full object-contain" />
+                ) : (
+                  <video ref={cameraVideoRef} autoPlay playsInline muted className="aspect-video w-full object-contain" />
+                )}
+              </div>
+              <div className="mt-4 flex flex-wrap justify-end gap-2">
+                {cameraCapture ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={retakeCameraPhoto}
+                      className="min-h-11 rounded-xl border border-white/10 px-4 text-sm font-medium text-slate-200 hover:bg-white/[0.06]"
+                    >
+                      Retake / ថតម្ដងទៀត
+                    </button>
+                    <button
+                      type="button"
+                      onClick={useCameraPhoto}
+                      disabled={processingImages || attachments.length >= MAX_PROMPT_IMAGES}
+                      className="min-h-11 rounded-xl bg-emerald-500 px-4 text-sm font-semibold text-white hover:bg-emerald-400 disabled:opacity-50"
+                    >
+                      Use photo / ប្រើរូបនេះ
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={captureCameraPhoto}
+                    className="min-h-11 rounded-xl bg-emerald-500 px-4 text-sm font-semibold text-white hover:bg-emerald-400"
+                  >
+                    Capture / ថតរូប
+                  </button>
+                )}
+              </div>
+            </section>
+          </div>
+        )}
       </main>
     );
   }
@@ -1401,7 +1919,7 @@ export default function Builder() {
                   <button
                     type="button"
                     onClick={() => imageInputRef.current?.click()}
-                    disabled={busy || processingImages || attachments.length >= 2}
+                    disabled={busy || processingImages || attachments.length >= MAX_PROMPT_IMAGES}
                     aria-label="Attach an image"
                     title="Attach an image"
                     className="grid size-8 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-white/[0.06] hover:text-slate-200 disabled:opacity-40"
@@ -1411,7 +1929,7 @@ export default function Builder() {
                   <button
                     type="button"
                     onClick={() => cameraInputRef.current?.click()}
-                    disabled={busy || processingImages || attachments.length >= 2}
+                    disabled={busy || processingImages || attachments.length >= MAX_PROMPT_IMAGES}
                     aria-label="Capture or upload an image"
                     title="Capture or upload an image"
                     className="grid size-8 shrink-0 place-items-center rounded-lg text-slate-400 hover:bg-white/[0.06] hover:text-slate-200 disabled:opacity-40"
@@ -1445,7 +1963,7 @@ export default function Builder() {
           </form>
         </section>
 
-        <section className={panelVisibility("code", mobilePanel)}>
+        <section className={`${panelVisibility("code", mobilePanel)} notranslate`} translate="no">
           <div className="flex h-12 shrink-0 items-center justify-between border-b border-white/[0.07] px-4">
             <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
               <Code2 size={14} className="text-slate-500" />
@@ -1492,7 +2010,7 @@ export default function Builder() {
           </div>
         </section>
 
-        <section className={panelVisibility("preview", mobilePanel)}>
+        <section className={`${panelVisibility("preview", mobilePanel)} notranslate`} translate="no">
           <div className="flex h-12 shrink-0 items-center justify-between border-b border-white/[0.07] px-4">
             <div className="flex items-center gap-2 text-xs font-semibold text-slate-200">
               <Eye size={14} className="text-slate-500" />
@@ -1514,7 +2032,7 @@ export default function Builder() {
                 externalResources: ["https://cdn.tailwindcss.com"],
               }}
             >
-              <div className="sandpack h-full">
+              <div className="sandpack h-full notranslate" translate="no">
                 <SandpackPreview
                   showOpenInCodeSandbox={false}
                   showRefreshButton

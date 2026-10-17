@@ -16,6 +16,7 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { readJsonBody, RequestBodyTooLargeError } from "@/lib/request-body";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const ProjectSaveRequestSchema = z.object({
   projectId: z.string().uuid(),

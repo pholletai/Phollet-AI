@@ -20,6 +20,7 @@ import {
 } from "@/lib/google-oauth";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 function redirectToBuilder(request: Request, error?: string, sessionCookie?: string) {
   const builderUrl = getBuilderPublicUrl() ?? new URL(request.url);
@@ -27,6 +28,7 @@ function redirectToBuilder(request: Request, error?: string, sessionCookie?: str
   if (error) url.searchParams.set("auth_error", error);
   const response = NextResponse.redirect(url, { status: 303 });
   response.headers.append("Set-Cookie", clearGoogleStateCookie());
+  if (error && !sessionCookie) response.headers.append("Set-Cookie", clearSessionCookie());
   if (sessionCookie) response.headers.append("Set-Cookie", sessionCookie);
   response.headers.set("Cache-Control", "no-store, max-age=0");
   return response;
@@ -122,13 +124,8 @@ export async function GET(request: Request) {
       `INSERT INTO builder_users
          (id, email, password_hash, google_sub, verified_at)
        VALUES ($1, $2, NULL, $3, NOW())
-       ON CONFLICT (email) DO UPDATE SET
-         google_sub = COALESCE(builder_users.google_sub, EXCLUDED.google_sub),
-         verified_at = COALESCE(builder_users.verified_at, NOW()),
-         verification_token_hash = NULL,
-         verification_expires_at = NULL
-       WHERE builder_users.google_sub IS NULL
-          OR builder_users.google_sub = EXCLUDED.google_sub
+       ON CONFLICT (google_sub) WHERE google_sub IS NOT NULL
+       DO UPDATE SET google_sub = EXCLUDED.google_sub
        RETURNING id`,
       [randomUUID(), identity.email.toLowerCase(), identity.sub],
     );

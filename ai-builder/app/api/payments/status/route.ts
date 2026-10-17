@@ -11,6 +11,7 @@ import { readJsonBody, RequestBodyTooLargeError } from "@/lib/request-body";
 import { settlePaymentOrder } from "@/lib/payments/settle-order";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 export const maxDuration = 20;
 
 const StatusSchema = z.object({ orderId: z.string().uuid() });

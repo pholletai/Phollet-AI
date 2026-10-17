@@ -27,6 +27,7 @@ import { readJsonBody, RequestBodyTooLargeError } from "@/lib/request-body";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const AuthSchema = z.discriminatedUnion("action", [
   z.object({

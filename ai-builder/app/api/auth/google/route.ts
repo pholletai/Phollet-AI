@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { CodeChallengeMethod } from "google-auth-library";
 import { NextResponse } from "next/server";
+import { clearSessionCookie } from "@/lib/auth";
 import {
   createGoogleOAuthClient,
   createGoogleStateCookie,
@@ -9,11 +10,13 @@ import {
 } from "@/lib/google-oauth";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 function returnWithError(request: Request, error: string) {
   const url = new URL("/", request.url);
   url.searchParams.set("auth_error", error);
   const response = NextResponse.redirect(url, { status: 303 });
+  response.headers.append("Set-Cookie", clearSessionCookie());
   response.headers.set("Cache-Control", "no-store, max-age=0");
   return response;
 }
@@ -58,6 +61,7 @@ export async function GET(request: Request) {
       "Set-Cookie",
       createGoogleStateCookie(state, configuration.secret),
     );
+    response.headers.append("Set-Cookie", clearSessionCookie());
     response.headers.set("Cache-Control", "no-store, max-age=0");
     return response;
   } catch (error) {

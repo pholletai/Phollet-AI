@@ -26,6 +26,7 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { FREE_TRIAL_PROJECT_LIMIT } from "@/lib/payments/plans";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 export const maxDuration = 90;
 
 const RequestSchema = z.object({
@@ -51,7 +52,7 @@ const RequestSchema = z.object({
           .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
       }),
     )
-    .max(2)
+    .max(4)
     .optional()
     .default([]),
 });
