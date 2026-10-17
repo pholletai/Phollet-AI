@@ -16,6 +16,7 @@ import {
   databaseErrorCode,
   databaseFailureMessage,
   ensureBillingSchema,
+  getActiveSubscription,
   getBuilderAccess,
   getBuilderProject,
   saveBuilderProject,
@@ -366,12 +367,11 @@ export async function POST(request: Request) {
   if (!userId) {
     return jsonResponse({ error: "Sign in to use the Builder." }, 401);
   }
-<<<<<<< HEAD
   let hasSubscription = false;
 try {
   await ensureBillingSchema();
   hasSubscription = Boolean(await getActiveSubscription(userId));
-} catch (error) {
+   } catch (error) {
   if (error instanceof DatabaseConfigurationError) {
     return jsonResponse({ error: "Account and subscription storage is not configured." }, 503);
   }
@@ -379,10 +379,8 @@ try {
     errorName: error instanceof Error ? error.name : "UnknownError",
   });
   return jsonResponse({ error: "Subscription service is temporarily unavailable." }, 503);
-}
+  }
 
-=======
->>>>>>> ef2224e (Ready for production deploy)
   if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) {
     return jsonResponse({ error: "Content-Type must be application/json." }, 415);
   }
@@ -421,6 +419,7 @@ try {
 
   const conversation = parsedRequest.data.messages;
   const images = parsedRequest.data.images;
+  const projectId = parsedRequest.data.projectId;
   const latestUserMessage = conversation.at(-1)?.content ?? "";
   const previousAssistantMessage = conversation
     .slice(0, -1)
@@ -431,7 +430,6 @@ try {
   const canGenerateFiles =
     previousAssistantMessage?.kind === "files" ||
     (previousAssistantMessage?.kind === "proposal" && approval);
-<<<<<<< HEAD
 
     if (canGenerateFiles && !hasSubscription) {
   return jsonResponse(
@@ -442,65 +440,6 @@ try {
     402,
   );
 }
-
-=======
-  const projectId = parsedRequest.data.projectId;
-  let currentProject = null;
-  try {
-    await ensureBillingSchema();
-    if (projectId) {
-      currentProject = await getBuilderProject(userId, projectId);
-      if (!currentProject) {
-        return jsonResponse({ error: "This project was not found." }, 404);
-      }
-    } else if (canGenerateFiles) {
-      const access = await getBuilderAccess(userId);
-      if (!access) return jsonResponse({ error: "Sign in to use the Builder." }, 401);
-      if (!access.subscription && access.trialProjectCount >= FREE_TRIAL_PROJECT_LIMIT) {
-        return jsonResponse(
-          { error: "Your free project is ready. Upgrade to Pro to start another project." },
-          402,
-        );
-      }
-    }
-    if (currentProject && canGenerateFiles && !currentProject.is_trial) {
-      const access = await getBuilderAccess(userId);
-      if (!access) return jsonResponse({ error: "Sign in to use the Builder." }, 401);
-      if (!access.subscription) {
-        return jsonResponse({ error: "An active Pro plan is required to continue this project." }, 402);
-      }
-    }
-  } catch (error) {
-    if (error instanceof DatabaseConfigurationError) {
-      return jsonResponse({ error: "Account and project storage is not configured." }, 503);
-    }
-    const message = databaseFailureMessage(error);
-    if (message) {
-      console.error("Builder project access could not reach PostgreSQL.", {
-        errorCode: databaseErrorCode(error),
-      });
-      return jsonResponse({ error: message }, 503);
-    }
-    console.error("Builder project access check failed.", {
-      errorName: error instanceof Error ? error.name : "UnknownError",
-    });
-    return jsonResponse({ error: "Builder access is temporarily unavailable." }, 503);
-  }
->>>>>>> ef2224e (Ready for production deploy)
-  const providerMessages: ProviderMessage[] = conversation.map(({ role, content }, index) => ({
-    role,
-    content,
-    ...(index === conversation.length - 1 && images.length > 0 ? { images } : {}),
-  }));
-  if (currentProject && canGenerateFiles) {
-    providerMessages.splice(providerMessages.length - 1, 0, {
-      role: "assistant",
-      content: `Current saved project files:\n${JSON.stringify({
-        files: currentProject.files,
-        dependencies: currentProject.dependencies,
-      })}`,
-    });
-  }
 
   const provider =
     process.env.AI_PROVIDER?.trim().toLowerCase() ||
@@ -525,6 +464,22 @@ try {
               : "");
 
   try {
+    const currentProject = projectId ? await getBuilderProject(userId, projectId) : null;
+    const providerMessages: ProviderMessage[] = conversation.map(({ role, content }, index) => ({
+      role,
+      content,
+      ...(index === conversation.length - 1 && images.length > 0 ? { images } : {}),
+    }));
+    if (currentProject && canGenerateFiles) {
+      providerMessages.splice(providerMessages.length - 1, 0, {
+        role: "assistant",
+        content: `Current saved project files:\n${JSON.stringify({
+          files: currentProject.files,
+          dependencies: currentProject.dependencies,
+        })}`,
+      });
+    }
+
     if (images.length > 0 && (provider === "deepseek" || provider === "")) {
       return jsonResponse(
         {
